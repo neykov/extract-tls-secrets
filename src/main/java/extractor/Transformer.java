@@ -32,6 +32,18 @@ public class Transformer implements ClassFileTransformer {
 				log.log(Level.WARNING, "Error instrumenting " + className, e);
 				return classfileBuffer;
 			}
+		} else if (className.equals("sun.security.ssl.Handshaker") ||
+				className.equals("com.sun.net.ssl.internal.ssl.Handshaker")) {
+			try {
+				ClassPool pool = ClassPool.getDefault();
+				CtClass sslSessionClass = pool.get(className);
+				CtMethod method = sslSessionClass.getDeclaredMethod("calculateConnectionKeys");
+				method.insertBefore(MasterSecretCallback.class.getName() + ".onCalculateKeys(session, clnt_random, $1);");
+				return sslSessionClass.toBytecode();
+			} catch (Throwable e) {
+				log.log(Level.WARNING, "Error instrumenting " + className, e);
+				return classfileBuffer;
+			}
 		} else {
 			return classfileBuffer;
 		}

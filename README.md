@@ -11,7 +11,7 @@ By default the keys are logged to `ssl-master-secrets.txt`, to
 log to a different file specify it after the equals sign. For example:
 
 ```
-java -javaagent:extract-ssl-secter-0.0.1-SNAPSHOT.jar=/tmp/secrets.log -jar MyApp.jar
+java -javaagent:extract-ssl-secrets-0.0.1-SNAPSHOT.jar=/tmp/secrets.log -jar MyApp.jar
 ```
 
 To use the file in Wireshark configure the secrets key in

@@ -2,12 +2,14 @@ package extractor;
 
 import java.io.FileWriter;
 import java.io.Writer;
+import java.lang.reflect.Field;
 import java.security.Key;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ssl.SSLSession;
 
+//https://github.com/boundary/wireshark/blob/master/epan/dissectors/packet-ssl-utils.c#L4164
 public class MasterSecretCallback {
 	private static final Logger log = Logger.getLogger(MasterSecretCallback.class.getName());
 	
@@ -27,6 +29,18 @@ public class MasterSecretCallback {
 			log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
 		}
 	}
+	
+	public static void onCalculateKeys(SSLSession sslSession, Object randomCookie, Key masterSecret) {
+		try {
+			String clientRandom = bytesToHex((byte[])get(randomCookie, "random_bytes"));
+			String masterKey = bytesToHex(masterSecret.getEncoded());
+			Writer out = new FileWriter(secretsFileName, true);
+			out.write("CLIENT_RANDOM " + clientRandom + " " + masterKey + "\n");
+			out.close();
+		} catch (Exception e) {
+			log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
+		}
+	}
 
 	final protected static char[] hexArray = "0123456789ABCDEF".toCharArray();
 	public static String bytesToHex(byte[] bytes) {
@@ -39,4 +53,9 @@ public class MasterSecretCallback {
 	    return new String(hexChars);
 	}
 
+	private static Object get(Object newObj, String field) throws IllegalAccessException, NoSuchFieldException {
+		Field f = newObj.getClass().getDeclaredField(field);
+		f.setAccessible(true);
+		return f.get(newObj);
+	}
 }
