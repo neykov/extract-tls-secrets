@@ -31,3 +31,17 @@ git clone https://github.com/neykov/extract-ssl-secrets.git
 cd extract-ssl-secrets
 mvn clean package
 ```
+
+## Troubleshooting
+
+If you get an empty window after selecting "Follow/SSL Stream" from the context menu
+or are not seeing HTTP protocol packets in the packet list then you can fix this by either:
+  * Save the capture as a file and open it again
+  * In the Wireshark settings in "Procotols/SSL" toggle "Reassemble SSL Application Data spanning multiple SSL records".
+  The exact state of the checkbox doesn't matter, but it will force a reload which will force proper decryption of the packets.
+
+The bug seems to be related to the UI side of wireshark as the SSL debug logs show the message successfully being decrypted.
+
+Reports of the problem:
+  * https://ask.wireshark.org/questions/33879/ssl-decrypt-shows-ok-in-ssl-debug-file-but-not-in-wireshark
+  * https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=9154
