@@ -6,15 +6,16 @@ for use with Wireshark. Works with connections established with the
 
 To extract the keys from a java application use the jvm option 
 `-javaagent:<path to jar>/extract-ssl-secrets-1.0.0.jar[=<path to secrets log file>]`.
-The name of the jar must remain the same - it won't work if renamed.
+**The name of the jar must remain the same** - it won't work if renamed.
 By default the keys are logged to `ssl-master-secrets.txt`, to
 log to a different file specify it after the equals sign. For example:
 
 ```
+wget https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/1.0.0/extract-ssl-secrets-1.0.0.jar
 java -javaagent:extract-ssl-secrets-1.0.0.jar=/tmp/secrets.log -jar MyApp.jar
 ```
 
-To use the file in Wireshark configure the secrets key in
+To use the file in Wireshark configure the secrets file in
 `Edit > Preferences > Protocols > SSL > (Pre)-Master-Secret log filename`
 or start with:
 
