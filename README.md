@@ -46,3 +46,8 @@ The bug seems to be related to the UI side of wireshark as the SSL debug logs sh
 Reports of the problem:
   * https://ask.wireshark.org/questions/33879/ssl-decrypt-shows-ok-in-ssl-debug-file-but-not-in-wireshark
   * https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=9154
+
+
+If "Follow/SSL Stream" is not enabled the server is probably on a non-standard port so Wireshark can't infer that the packets
+contain SSL traffic. To hint it that it should be decoding the packets as SSL right click on any of the packets to open the context menu,
+select "Decode As" and add the server port, select "SSL" protocol in the "Current" column.
