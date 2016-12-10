@@ -25,6 +25,10 @@ wireshark -o ssl.keylog_file:/tmp/secrets.log
 
 The packets will be decrypted in real-time.
 
+## Download
+
+Download [extract-ssl-secrets-1.0.0.jar](https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/1.0.0/extract-ssl-secrets-1.0.0.jar).
+
 ## Building
 
 ```
