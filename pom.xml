@@ -1,14 +1,44 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
+
   <groupId>name.neykov</groupId>
   <artifactId>extract-ssl-secrets</artifactId>
   <version>1.0.0</version>
+
+  <name>Extract SSL Master Secret</name>
+  <description>
+    Extracts in real-time the fields needed by Wireshark to
+    decode encrypted connections
+  </description>
+  <url>https://github.com/neykov/extract-ssl-secrets</url>
+
+  <licenses>
+    <license>
+      <name>The Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <name>Svetoslav Neykov</name>
+      <email>svetoslav@neykov.name</email>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:git://github.com/neykov/extract-ssl-secrets.git</connection>
+    <developerConnection>scm:git:ssh://github.com:neykov/extract-ssl-secrets.git</developerConnection>
+    <url>http://github.com/neykov/extract-ssl-secrets/tree/master</url>
+  </scm>
+
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.source>1.5</maven.compiler.source>
       <maven.compiler.target>1.5</maven.compiler.target>
-    </properties>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>javassist</groupId>
@@ -16,6 +46,7 @@
       <version>3.12.1.GA</version>
     </dependency>
   </dependencies>
+
   <build>
     <plugins>
       <plugin>
@@ -56,6 +87,7 @@
       </plugin>
     </plugins>
   </build>
+
   <profiles>
     <profile>
       <id>Release</id>
