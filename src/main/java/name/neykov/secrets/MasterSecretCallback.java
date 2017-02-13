@@ -1,4 +1,4 @@
-package extractor;
+package name.neykov.secrets;
 
 import java.io.FileWriter;
 import java.io.Writer;

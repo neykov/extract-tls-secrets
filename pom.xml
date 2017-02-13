@@ -57,7 +57,7 @@
           <archive>
             <addMavenDescriptor>false</addMavenDescriptor>
             <manifestEntries>
-              <Premain-Class>extractor.Main</Premain-Class>
+              <Premain-Class>name.neykov.secrets.Main</Premain-Class>
               <Boot-Class-Path>./${project.build.finalName}.jar</Boot-Class-Path>
               <Can-Redefine-Classes>true</Can-Redefine-Classes>
             </manifestEntries>
@@ -78,7 +78,7 @@
               <relocations>
                 <relocation>
                   <pattern>javassist</pattern>
-                  <shadedPattern>extractor.javassist</shadedPattern>
+                  <shadedPattern>name.neykov.secrets.javassist</shadedPattern>
                 </relocation>
               </relocations>
             </configuration>

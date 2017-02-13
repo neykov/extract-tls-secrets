@@ -1,4 +1,4 @@
-package extractor;
+package name.neykov.secrets;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URL;

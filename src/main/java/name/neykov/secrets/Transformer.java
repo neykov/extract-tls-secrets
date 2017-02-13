@@ -1,4 +1,4 @@
-package extractor;
+package name.neykov.secrets;
 
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
