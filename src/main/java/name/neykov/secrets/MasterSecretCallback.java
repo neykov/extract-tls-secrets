@@ -9,7 +9,8 @@ import java.util.logging.Logger;
 
 import javax.net.ssl.SSLSession;
 
-//https://github.com/boundary/wireshark/blob/master/epan/dissectors/packet-ssl-utils.c#L4164
+//Secrets file format:
+//https://github.com/boundary/wireshark/blob/d029f48e4fd74b09848fc309630e5dfdc5d602f2/epan/dissectors/packet-ssl-utils.c#L4164-L4182
 public class MasterSecretCallback {
 	private static final Logger log = Logger.getLogger(MasterSecretCallback.class.getName());
 	

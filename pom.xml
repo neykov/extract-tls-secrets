@@ -36,7 +36,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.source>1.5</maven.compiler.source>
-      <maven.compiler.target>1.5</maven.compiler.target>
+    <maven.compiler.target>1.5</maven.compiler.target>
   </properties>
 
   <dependencies>
@@ -57,9 +57,12 @@
           <archive>
             <addMavenDescriptor>false</addMavenDescriptor>
             <manifestEntries>
-              <Premain-Class>name.neykov.secrets.Main</Premain-Class>
-              <Boot-Class-Path>./${project.build.finalName}.jar</Boot-Class-Path>
+              <Main-Class>name.neykov.secrets.AgentAttach</Main-Class>
+              <Premain-Class>name.neykov.secrets.AgentMain</Premain-Class>
+              <Agent-Class>name.neykov.secrets.AgentMain</Agent-Class>
               <Can-Redefine-Classes>true</Can-Redefine-Classes>
+              <Can-Retransform-Classes>true</Can-Retransform-Classes>
+              <Boot-Class-Path>./${project.build.finalName}.jar</Boot-Class-Path>
             </manifestEntries>
           </archive>
         </configuration>
