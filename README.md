@@ -1,19 +1,48 @@
 # extract-ssl-secrets
 
+Decrypt SSL/TLS connections in real time.
+
 Extracts the shared master key used in secure connections (SSL & TLS)
 for use with Wireshark. Works with connections established with the
 (Java provided) javax.net.ssl.SSLSocket API.
 
-To extract the keys from a java application use the jvm option 
-`-javaagent:<path to jar>/extract-ssl-secrets-1.0.0.jar[=<path to secrets log file>]`.
+## Download
+
+Download [extract-ssl-secrets-1.0.0.jar](https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/1.0.0/extract-ssl-secrets-1.0.0.jar).
+
 **The name of the jar must remain the same** - it won't work if renamed.
-By default the keys are logged to `ssl-master-secrets.txt`, to
-log to a different file specify it after the equals sign. For example:
+
+## Usage
+
+Attaching to an existing Java process to extract the keys. Requires a JDK
+install with `JAVA_HOME` (for Windows) or `java.home` (for Unix) pointing
+to it. First list the available process IDs with:
 
 ```
-wget https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/1.0.0/extract-ssl-secrets-1.0.0.jar
+java -jar extract-ssl-secrets-1.1.0-SNAPSHOT.jar list
+```
+
+Next attach to the process by executing:
+
+```
+java -jar extract-ssl-secrets-1.1.0-SNAPSHOT.jar <pid> [<path to secrets log file>]
+```
+
+If no JDK is installed it's still possible to attach to a Java process. 
+Use the JVM startup option 
+`-javaagent:<path to jar>/extract-ssl-secrets-1.0.0.jar[=<path to secrets log file>]`.
+
+For example:
+
+```
 java -javaagent:extract-ssl-secrets-1.0.0.jar=/tmp/secrets.log -jar MyApp.jar
 ```
+
+Make sure you don't rename the jar file. Keeping the original name. It won't work if renamed.
+
+By default the keys are logged to `ssl-master-secrets.txt` in the target
+process working folder. To log to a different file specify the optional
+`<path to secrets log file>` in one of the above commands.
 
 To use the file in Wireshark configure the secrets file in
 `Edit > Preferences > Protocols > SSL > (Pre)-Master-Secret log filename`
@@ -24,10 +53,6 @@ wireshark -o ssl.keylog_file:/tmp/secrets.log
 ```
 
 The packets will be decrypted in real-time.
-
-## Download
-
-Download [extract-ssl-secrets-1.0.0.jar](https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/1.0.0/extract-ssl-secrets-1.0.0.jar).
 
 ## Building
 
@@ -52,6 +77,4 @@ Reports of the problem:
   * https://bugs.wireshark.org/bugzilla/show_bug.cgi?id=9154
 
 
-If "Follow/SSL Stream" is not enabled the server is probably on a non-standard port so Wireshark can't infer that the packets
-contain SSL traffic. To hint it that it should be decoding the packets as SSL right click on any of the packets to open the context menu,
-select "Decode As" and add the server port, select "SSL" protocol in the "Current" column.
+If "Follow/SSL Stream" is not enabled the server is probably on a non-standard port so Wireshark can't infer that the packets contain SSL traffic. To hint it that it should be decoding the packets as SSL right click on any of the packets to open the context menu, select "Decode As" and add the server port, select "SSL" protocol in the "Current" column. If it's still not able to decrypt try the same by saving the capture in a file and re-opening it.
