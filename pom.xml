@@ -62,6 +62,16 @@
               <Agent-Class>name.neykov.secrets.AgentMain</Agent-Class>
               <Can-Redefine-Classes>true</Can-Redefine-Classes>
               <Can-Retransform-Classes>true</Can-Retransform-Classes>
+              <!--
+                The agent is loaded in the App class loader. Instrumented
+                classes are in the boot class loader so can't see "MasterSecretCallback"
+                by default. Adding self to the boot class loader will:
+                  1. make MasterSecretCallback visible to core classes
+                  2. will cause the App class loader to delegate all loading
+                     to the boot class loader. Resulting in all classes loaded from
+                     boor class loader which avoids split brain state where half of
+                     them are loaded by the app class loader.
+              -->
               <Boot-Class-Path>./${project.build.finalName}.jar</Boot-Class-Path>
             </manifestEntries>
           </archive>

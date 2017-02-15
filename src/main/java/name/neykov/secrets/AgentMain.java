@@ -7,16 +7,19 @@ import java.net.URL;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+// Loaded in the App class loader
 public class AgentMain {
     private static final Logger log = Logger.getLogger(AgentMain.class.getName());
 
     // Created in process working directory
     public static final String DEFAULT_SECRETS_FILE = "ssl-master-secrets.txt";
 
+    // Called from inside the target process when using "-javaagent:" option.
     public static void premain(String agentArgs, Instrumentation inst) {
         main(agentArgs, inst);
     }
 
+    // Called from inside the target process when attaching at runtime.
     public static void agentmain(String agentArgs, Instrumentation inst) {
         main(agentArgs, inst);
         reloadClasses(inst);

@@ -8,6 +8,7 @@ import java.net.URLClassLoader;
 
 public class AgentAttach {
 
+    // Called on "java -jar" execution. Will attach self to the target process.
     public static void main(String[] args) throws Exception {
         URL jarUrl = AgentAttach.class.getProtectionDomain().getCodeSource().getLocation();
         File jarFile = new File(jarUrl.toURI());
