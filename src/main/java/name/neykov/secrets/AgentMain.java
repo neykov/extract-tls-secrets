@@ -1,17 +1,14 @@
 package name.neykov.secrets;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.lang.instrument.ClassDefinition;
 import java.lang.instrument.Instrumentation;
-import java.lang.instrument.UnmodifiableClassException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class AgentMain {
-    private static final Logger log = Logger.getLogger(Transformer.class.getName());
+    private static final Logger log = Logger.getLogger(AgentMain.class.getName());
 
     // Created in process working directory
     public static final String DEFAULT_SECRETS_FILE = "ssl-master-secrets.txt";
@@ -32,47 +29,40 @@ public class AgentMain {
         for (Class<?> loadedClass : inst.getAllLoadedClasses()) {
             if (Transformer.needsTransform(loadedClass.getName())) {
                 try {
-                    reloadClass(inst, loadedClass);
-                } catch (ClassNotFoundException e) {
+                    inst.retransformClasses(loadedClass);
+                } catch (Throwable e) {
                     log.log(Level.WARNING, "Failed instrumenting " + loadedClass.getName() + ". Shared secret extraction might fail.", e);
-                } catch (UnmodifiableClassException e) {
-                    log.log(Level.WARNING, "Failed instrumenting " + loadedClass.getName() + ". Shared secret extraction might fail.", e);
-                } catch (IOException e) {
-                    log.log(Level.WARNING, "Failed instrumenting " + loadedClass.getName() + ". Shared secret extraction might fail.", e);
+                    if (e instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
                 }
             }
         }
     }
 
-    private static void reloadClass(Instrumentation inst, Class<?> loadedClass)
-            throws ClassNotFoundException, UnmodifiableClassException, IOException {
-        byte[] classBuffer = readFully(loadedClass.getResourceAsStream(loadedClass.getSimpleName() + ".class"));
-        inst.redefineClasses(new ClassDefinition(loadedClass, classBuffer));
-    }
-
-    private static byte[] readFully(InputStream in) throws IOException {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-
-        int read;
-        byte[] buff = new byte[4096];
-        while ((read = in.read(buff, 0, buff.length)) != -1) {
-            buffer.write(buff, 0, read);
-        }
-        return buffer.toByteArray();
-    }
-
     private static void main(String agentArgs, Instrumentation inst) {
+        inst.addTransformer(new Transformer());
+
+        URL jarUrl = AgentAttach.class.getProtectionDomain().getCodeSource().getLocation();
+        File jarFile;
+        try {
+            jarFile = new File(jarUrl.toURI());
+        } catch (URISyntaxException e) {
+            log.log(Level.WARNING, "Failed attaching to process. Can't convert jar to a local path " + jarUrl, e);
+            return;
+        }
+
         String secretsFile;
         if (agentArgs != null && !agentArgs.isEmpty()) {
             secretsFile = agentArgs;
         } else {
             secretsFile = DEFAULT_SECRETS_FILE;
         }
-        MasterSecretCallback.setSecretsFileName(secretsFile);
-        inst.addTransformer(new Transformer());
 
+        MasterSecretCallback.setSecretsFileName(secretsFile);
         String secretsLocation = new File(System.getProperty("user.dir"), secretsFile).getAbsolutePath();
-        log.info("Successfully attached extract-ssl-secrets agent. Logging to " + secretsLocation);
+        log.info("Successfully attached agent " + jarFile + ". Logging to " + secretsLocation);
     }
-    
+
 }

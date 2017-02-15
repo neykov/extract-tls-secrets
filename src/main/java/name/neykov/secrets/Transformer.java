@@ -1,7 +1,6 @@
 package name.neykov.secrets;
 
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
 import java.security.ProtectionDomain;
@@ -42,12 +41,11 @@ public class Transformer implements ClassFileTransformer {
                     CtClass instrumentedClass = pool.makeClass(new ByteArrayInputStream(classfileBuffer));
                     instrumentClass(instrumentedClass);
                     return instrumentedClass.toBytecode();
-                } catch (CannotCompileException e) {
+                } catch (Throwable e) {
                     log.log(Level.WARNING, "Error instrumenting " + className, e);
-                } catch (NotFoundException e) {
-                    log.log(Level.WARNING, "Error instrumenting " + className, e);
-                } catch (IOException e) {
-                    log.log(Level.WARNING, "Error instrumenting " + className, e);
+                    if (e instanceof InterruptedException) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
             }
             return classfileBuffer;
