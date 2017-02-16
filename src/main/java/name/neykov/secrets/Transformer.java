@@ -11,7 +11,6 @@ import javassist.CannotCompileException;
 import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.CtMethod;
-import javassist.LoaderClassPath;
 import javassist.NotFoundException;
 
 public class Transformer implements ClassFileTransformer {
@@ -33,11 +32,11 @@ public class Transformer implements ClassFileTransformer {
             return false;
         }
 
-        public byte[] transform(String className, byte[] classfileBuffer, ClassLoader cl) {
+        public byte[] transform(String className, byte[] classfileBuffer) {
             if (handles(className)) {
                 try {
                     ClassPool pool = new ClassPool();
-                    pool.appendClassPath(new LoaderClassPath(cl));
+                    pool.appendSystemPath();
                     CtClass instrumentedClass = pool.makeClass(new ByteArrayInputStream(classfileBuffer));
                     instrumentClass(instrumentedClass);
                     return instrumentedClass.toBytecode();
@@ -90,9 +89,10 @@ public class Transformer implements ClassFileTransformer {
             ProtectionDomain protectionDomain,
             byte[] classfileBuffer) throws IllegalClassFormatException {
         String className = classPath.replace("/", ".");
+        // loader should be null (boot loader), so don't use it
         for (InjectCallback ic : TRANSFORMERS) {
             if (ic.handles(className)) {
-                return ic.transform(className, classfileBuffer, loader);
+                return ic.transform(className, classfileBuffer);
             }
         }
         return classfileBuffer;

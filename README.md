@@ -10,8 +10,6 @@ for use with Wireshark. Works with connections established with the
 
 Download [extract-ssl-secrets-1.0.0.jar](https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/1.0.0/extract-ssl-secrets-1.0.0.jar).
 
-**The name of the jar must remain the same** - it won't work if renamed.
-
 ## Usage
 
 Attaching to an existing Java process to extract the keys. Requires a JDK
@@ -37,8 +35,6 @@ For example:
 ```
 java -javaagent:extract-ssl-secrets-1.0.0.jar=/tmp/secrets.log -jar MyApp.jar
 ```
-
-Make sure you don't rename the jar file. Keeping the original name. It won't work if renamed.
 
 By default the keys are logged to `ssl-master-secrets.txt` in the target
 process working folder. To log to a different file specify the optional
