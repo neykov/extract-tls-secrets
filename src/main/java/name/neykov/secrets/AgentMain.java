@@ -20,14 +20,14 @@ public class AgentMain {
     public static void premain(String agentArgs, Instrumentation inst) {
         File jarFile = getJarFile();
         initClassPath(inst, jarFile);
-        main(agentArgs, inst, jarFile.getAbsolutePath());
+        main(agentArgs, inst, jarFile);
     }
 
     // Called from inside the target process when attaching at runtime.
     public static void agentmain(String agentArgs, Instrumentation inst) {
         File jarFile = getJarFile();
         initClassPath(inst, jarFile);
-        main(agentArgs, inst, jarFile.getAbsolutePath());
+        main(agentArgs, inst, jarFile);
         reloadClasses(inst);
     }
 
@@ -59,7 +59,7 @@ public class AgentMain {
         }
     }
 
-    // When attaching to a running VM the classes we are interested
+    // When attaching to a running VM, the classes we are interested
     // in might already be loaded and used. Need to force a reload
     // so our transformer kicks in.
     private static void reloadClasses(Instrumentation inst) {
@@ -73,26 +73,41 @@ public class AgentMain {
                         Thread.currentThread().interrupt();
                         return;
                     }
+                    throw new IllegalStateException(e);
                 }
             }
         }
     }
 
-    private static void main(String agentArgs, Instrumentation inst, String jarFile) {
-        String secretsFile;
-        if (agentArgs != null && !agentArgs.isEmpty()) {
-            secretsFile = agentArgs;
-        } else {
-            secretsFile = DEFAULT_SECRETS_FILE;
-        }
+    private static void main(String agentArgs, Instrumentation inst, File jarFile) {
+        String canonicalSecretsPath = getCanonicalSecretsPath(agentArgs);
 
         // MasterSecretCallback is loaded in boot class loader
-        MasterSecretCallback.setSecretsFileName(secretsFile);
-        String secretsLocation = new File(System.getProperty("user.dir"), secretsFile).getAbsolutePath();
+        MasterSecretCallback.setSecretsFileName(canonicalSecretsPath);
+        inst.addTransformer(new Transformer(), true);
 
-        inst.addTransformer(new Transformer());
+        log.info("Successfully attached agent " + jarFile + ". Logging to " + canonicalSecretsPath + ". ");
+    }
 
-        log.info("Successfully attached agent " + jarFile + ". Logging to " + secretsLocation + ". ");
+    private static String getCanonicalSecretsPath(String agentArgs) {
+        String secretsPath;
+        if (agentArgs != null && !agentArgs.isEmpty()) {
+            secretsPath = agentArgs;
+        } else {
+            secretsPath = DEFAULT_SECRETS_FILE;
+        }
+
+        File secretsFile = new File(secretsPath);
+        if (!secretsFile.isAbsolute()) {
+            secretsFile = new File(System.getProperty("user.dir"), secretsPath);
+        }
+
+        try {
+            return secretsFile.getCanonicalPath();
+        } catch (IOException e) {
+            log.log(Level.WARNING, "Failed getting the canonical path for " + secretsFile, e);
+            throw new IllegalStateException(e);
+        }
     }
 
 }
