@@ -1,6 +1,7 @@
 package name.neykov.secrets;
 
 import java.io.FileWriter;
+import java.io.IOException;
 import java.io.Writer;
 import java.lang.reflect.Field;
 import java.security.Key;
@@ -13,6 +14,7 @@ import javax.net.ssl.SSLSession;
 //https://github.com/boundary/wireshark/blob/d029f48e4fd74b09848fc309630e5dfdc5d602f2/epan/dissectors/packet-ssl-utils.c#L4164-L4182
 public class MasterSecretCallback {
     private static final Logger log = Logger.getLogger(MasterSecretCallback.class.getName());
+    private static final String NL = System.getProperty("line.separator");
 
     private static String secretsFileName;
     public static void setSecretsFileName(String secretsFileName) {
@@ -23,9 +25,7 @@ public class MasterSecretCallback {
         try {
             String sessionKey = bytesToHex(sslSession.getId());
             String masterKey = bytesToHex(masterSecret.getEncoded());
-            Writer out = new FileWriter(secretsFileName, true);
-            out.write("RSA Session-ID:" + sessionKey + " Master-Key:" + masterKey + "\n");
-            out.close();
+            write("RSA Session-ID:" + sessionKey + " Master-Key:" + masterKey);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
@@ -35,16 +35,21 @@ public class MasterSecretCallback {
         try {
             String clientRandom = bytesToHex((byte[])get(randomCookie, "random_bytes"));
             String masterKey = bytesToHex(masterSecret.getEncoded());
-            Writer out = new FileWriter(secretsFileName, true);
-            out.write("CLIENT_RANDOM " + clientRandom + " " + masterKey + "\n");
-            out.close();
+            write("CLIENT_RANDOM " + clientRandom + " " + masterKey);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
     }
 
-    final protected static char[] hexArray = "0123456789ABCDEF".toCharArray();
-    public static String bytesToHex(byte[] bytes) {
+    private static synchronized void write(String secret) throws IOException {
+        Writer out = new FileWriter(secretsFileName, true);
+        out.write(secret);
+        out.write(NL);
+        out.close();
+    }
+
+    private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
+    private static String bytesToHex(byte[] bytes) {
         char[] hexChars = new char[bytes.length * 2];
         for ( int j = 0; j < bytes.length; j++ ) {
             int v = bytes[j] & 0xFF;
