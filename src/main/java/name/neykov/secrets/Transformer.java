@@ -1,6 +1,7 @@
 package name.neykov.secrets;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
 import java.security.ProtectionDomain;
@@ -32,11 +33,13 @@ public class Transformer implements ClassFileTransformer {
             return false;
         }
 
-        public byte[] transform(String className, byte[] classfileBuffer) {
+        public byte[] transform(String className, byte[] classfileBuffer, String jarFile) {
             if (handles(className)) {
                 try {
                     ClassPool pool = new ClassPool();
                     pool.appendSystemPath();
+                    // Needed for Java 9.
+                    pool.appendClassPath(jarFile);
                     CtClass instrumentedClass = pool.makeClass(new ByteArrayInputStream(classfileBuffer));
                     instrumentClass(instrumentedClass);
                     return instrumentedClass.toBytecode();
@@ -80,7 +83,12 @@ public class Transformer implements ClassFileTransformer {
     }
     
     private static final InjectCallback[] TRANSFORMERS = new InjectCallback[] {new SessionInjectCallback(), new HandshakerInjectCallback()};
+    private File jarFile;
     
+
+    public Transformer(File jarFile) {
+        this.jarFile = jarFile;
+    }
 
     public byte[] transform(
             ClassLoader loader,
@@ -92,7 +100,7 @@ public class Transformer implements ClassFileTransformer {
         // loader should be null (boot loader), so don't use it
         for (InjectCallback ic : TRANSFORMERS) {
             if (ic.handles(className)) {
-                return ic.transform(className, classfileBuffer);
+                return ic.transform(className, classfileBuffer, jarFile.getAbsolutePath());
             }
         }
         return classfileBuffer;

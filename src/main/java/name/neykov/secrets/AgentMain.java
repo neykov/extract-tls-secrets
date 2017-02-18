@@ -3,11 +3,21 @@ package name.neykov.secrets;
 import java.io.File;
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import javax.net.ssl.SSLEngine;
 
 // Loaded in the App class loader
 public class AgentMain {
@@ -38,13 +48,12 @@ public class AgentMain {
      * MasterSecretCallback visible to core classes. Not that this leads
      * to a split-brain state where some classes of the jar are loaded
      * by the App class loader and some in the boot class loader.
-     * @param jarFile2 
      */
     private static void initClassPath(Instrumentation inst, File jarFile) {
         try {
             inst.appendToBootstrapClassLoaderSearch(new JarFile(jarFile));
         } catch (IOException e) {
-            log.log(Level.WARNING, "Failed attaching to process. Can't access jar file" + jarFile, e);
+            log.log(Level.WARNING, "Failed attaching to process. Can't access jar file " + jarFile, e);
             throw new IllegalStateException(e);
         }
     }
@@ -80,13 +89,60 @@ public class AgentMain {
     }
 
     private static void main(String agentArgs, Instrumentation inst, File jarFile) {
+        openBaseModule(inst);
+
         String canonicalSecretsPath = getCanonicalSecretsPath(agentArgs);
 
         // MasterSecretCallback is loaded in boot class loader
         MasterSecretCallback.setSecretsFileName(canonicalSecretsPath);
-        inst.addTransformer(new Transformer(), true);
+        inst.addTransformer(new Transformer(jarFile), true);
 
         log.info("Successfully attached agent " + jarFile + ". Logging to " + canonicalSecretsPath + ". ");
+    }
+
+    private static void openBaseModule(Instrumentation inst) {
+        Method getModule;
+        try {
+            getModule = Class.class.getMethod("getModule");
+        } catch (NoSuchMethodException e) {
+            // No modules available, no need to open them (< Java 9)
+            return;
+        } catch (SecurityException e) {
+            // No modules available, no need to open them (< Java 9)
+            return;
+        }
+
+        try {
+            Map<String, Set<Object>> extraOpens = new HashMap<String, Set<Object>>();
+            extraOpens.put("sun.security.ssl", new HashSet<Object>(Arrays.asList(getModule.invoke(MasterSecretCallback.class))));
+
+            Method redefineModule = Instrumentation.class.getMethod("redefineModule", 
+                    getModule.getReturnType(), Set.class, Map.class,
+                    Map.class, Set.class, Map.class);
+
+            redefineModule.invoke(inst,
+                    getModule.invoke(SSLEngine.class),
+                    Collections.EMPTY_SET,
+                    Collections.EMPTY_MAP,
+                    extraOpens,
+                    Collections.EMPTY_SET,
+                    Collections.EMPTY_MAP);
+        } catch (IllegalAccessException e) {
+            log.log(Level.WARNING, "Failed opening modules.", e);
+            throw new IllegalStateException(e);
+        } catch (IllegalArgumentException e) {
+            log.log(Level.WARNING, "Failed opening modules.", e);
+            throw new IllegalStateException(e);
+        } catch (InvocationTargetException e) {
+            log.log(Level.WARNING, "Failed opening modules.", e);
+            throw new IllegalStateException(e);
+        } catch (NoSuchMethodException e) {
+            log.log(Level.WARNING, "Failed opening modules.", e);
+            throw new IllegalStateException(e);
+        } catch (SecurityException e) {
+            log.log(Level.WARNING, "Failed opening modules.", e);
+            throw new IllegalStateException(e);
+        }
     }
 
     private static String getCanonicalSecretsPath(String agentArgs) {

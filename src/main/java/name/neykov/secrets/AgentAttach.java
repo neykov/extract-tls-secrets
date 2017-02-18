@@ -112,23 +112,18 @@ public class AgentAttach {
             return localToolsFile;
         }
 
-        System.err.println("Invalid JAVA_HOME/java.home environment variable '" + javaHome.getAbsolutePath() + "'.");
+        System.err.println("Invalid JAVA_HOME environment variable '" + javaHome.getAbsolutePath() + "'.");
         System.err.println("Must point to a local JDK installation containing a 'lib/tools.jar' file.");
         return null;
     }
 
     private static File getJavaHomeOrComplain() {
-        String winJavaHomeEnv = System.getenv("JAVA_HOME");
-        if (winJavaHomeEnv != null) {
-            return new File(winJavaHomeEnv);
+        String javaHomeEnv = System.getenv("JAVA_HOME");
+        if (javaHomeEnv != null) {
+            return new File(javaHomeEnv);
         }
 
-        String unixJavaHomeEnv = System.getenv("java.home");
-        if (unixJavaHomeEnv != null) {
-            return new File(unixJavaHomeEnv);
-        }
-
-        System.err.println("No JAVA_HOME/java.home environment variable found. Must point to a local JDK installation.");
+        System.err.println("No JAVA_HOME environment variable found. Must point to a local JDK installation.");
         return null;
     }
 

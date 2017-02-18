@@ -1,6 +1,6 @@
 # extract-ssl-secrets
 
-Decrypt SSL/TLS connections in real time.
+Decrypt HTTPS/SSL/TLS connections on-the-fly with [Wireshark](https://www.wireshark.org/).
 
 Extracts the shared master key used in secure connections (SSL & TLS)
 for use with Wireshark. Works with connections established with the
@@ -49,6 +49,10 @@ wireshark -o ssl.keylog_file:/tmp/secrets.log
 ```
 
 The packets will be decrypted in real-time.
+
+## Requirements
+
+Requires at least JDK 6 with JAVA_HOME pointing to its installation folder. Supports Java 9.
 
 ## Building
 

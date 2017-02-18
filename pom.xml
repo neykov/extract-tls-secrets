@@ -8,8 +8,11 @@
 
   <name>Extract SSL Master Secret</name>
   <description>
-    Extracts in real-time the fields needed by Wireshark to
-    decode encrypted connections
+    Decrypt HTTPS/SSL/TLS connections on-the-fly with Wireshark.
+
+    Extracts the shared master key used in secure connections (SSL &amp; TLS)
+    for use with Wireshark. Works with connections established with the
+    (Java provided) javax.net.ssl.SSLSocket API.
   </description>
   <url>https://github.com/neykov/extract-ssl-secrets</url>
 
@@ -28,22 +31,22 @@
   </developers>
 
   <scm>
-    <connection>scm:git:git://github.com/neykov/extract-ssl-secrets.git</connection>
+    <connection>scm:git:https://github.com/neykov/extract-ssl-secrets.git</connection>
     <developerConnection>scm:git:ssh://github.com:neykov/extract-ssl-secrets.git</developerConnection>
-    <url>http://github.com/neykov/extract-ssl-secrets/tree/master</url>
+    <url>http://github.com/neykov/extract-ssl-secrets</url>
   </scm>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.source>1.5</maven.compiler.source>
-    <maven.compiler.target>1.5</maven.compiler.target>
+    <maven.compiler.source>1.6</maven.compiler.source>
+    <maven.compiler.target>1.6</maven.compiler.target>
   </properties>
 
   <dependencies>
     <dependency>
-      <groupId>javassist</groupId>
+      <groupId>org.javassist</groupId>
       <artifactId>javassist</artifactId>
-      <version>3.12.1.GA</version>
+      <version>3.21.0-GA</version>
     </dependency>
   </dependencies>
 
@@ -52,10 +55,9 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
-        <version>2.5</version>
+        <version>3.0.2</version>
         <configuration>
           <archive>
-            <addMavenDescriptor>false</addMavenDescriptor>
             <manifestEntries>
               <Main-Class>name.neykov.secrets.AgentAttach</Main-Class>
               <Premain-Class>name.neykov.secrets.AgentMain</Premain-Class>
@@ -69,7 +71,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>2.3</version>
+        <version>3.0.0</version>
         <executions>
           <execution>
             <phase>package</phase>
@@ -80,7 +82,7 @@
               <relocations>
                 <relocation>
                   <pattern>javassist</pattern>
-                  <shadedPattern>name.neykov.secrets.javassist</shadedPattern>
+                  <shadedPattern>name.neykov.secrets.internal.javassist</shadedPattern>
                 </relocation>
               </relocations>
             </configuration>
@@ -91,6 +93,63 @@
   </build>
 
   <profiles>
+    <!--
+      Alternative when tools.jar not available
+      https://github.com/apangin/jattach
+
+      Byte Buddy (https://github.com/raphw/byte-buddy) abstracts
+      the API, including a fallback implementing the attach api.
+    -->
+    <profile>
+      <id>jdk-profile</id>
+      <activation>
+        <file>
+          <exists>${java.home}/lib/tools.jar</exists>
+        </file>
+      </activation>
+      <properties>
+        <tools.path>${java.home}/lib/tools.jar</tools.path>
+      </properties>
+    </profile>
+    <profile>
+      <id>jre-profile</id>
+      <activation>
+        <file>
+          <exists>${java.home}/../lib/tools.jar</exists>
+        </file>
+      </activation>
+      <properties>
+        <tools.path>${java.home}/../lib/tools.jar</tools.path>
+      </properties>
+    </profile>
+    <profile>
+      <id>apple-jdk</id>
+      <activation>
+        <file>
+          <exists>${java.home}/../Classes/classes.jar</exists>
+        </file>
+      </activation>
+      <properties>
+        <tools.path>${java.home}/../Classes/classes.jar</tools.path>
+      </properties>
+    </profile>
+    <profile>
+      <id>tools</id>
+      <activation>
+          <!-- No dependencies needed by Jigsaw -->
+        <jdk>[,1.9)</jdk>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>com.sun</groupId>
+          <artifactId>tools</artifactId>
+          <scope>system</scope>
+          <version>1.6</version>
+          <systemPath>${tools.path}</systemPath>
+        </dependency>
+      </dependencies>
+    </profile>
+
     <profile>
       <id>Release</id>
       <build>
