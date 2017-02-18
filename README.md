@@ -52,7 +52,9 @@ The packets will be decrypted in real-time.
 
 ## Requirements
 
-Requires at least JDK 6 with JAVA_HOME pointing to its installation folder. Supports Java 9.
+Requires at least Java 6. Supports Java 9.
+For attaching to running processes a JDK is needed, with JAVA_HOME pointing to the installation folder.
+If only a JRE is available it's still possible to attach to a process with the `-javaagent:` startup option.
 
 ## Building
 
