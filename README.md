@@ -12,9 +12,9 @@ Download [extract-ssl-secrets-2.0.0.jar](https://repo1.maven.org/maven2/name/ney
 
 ## Usage
 
-Attaching to an existing Java process to extract the keys. Requires a JDK
-install with `JAVA_HOME` (for Windows) or `java.home` (for Unix) pointing
-to it. First list the available process IDs with:
+Attaching to an existing Java process to extract the keys requires a JDK
+install with `JAVA_HOME` pointing to it (see next paragraph for JRE only).
+First list the available process IDs with:
 
 ```
 java -jar extract-ssl-secrets-2.0.0.jar list
@@ -53,8 +53,8 @@ The packets will be decrypted in real-time.
 ## Requirements
 
 Requires at least Java 6. Supports Java 9.
-For attaching to running processes a JDK is needed, with JAVA_HOME pointing to the installation folder.
-If only a JRE is available it's still possible to attach to a process with the `-javaagent:` startup option.
+If only a JRE is available use the `-javaagent:` startup option to attach to a process.
+For attaching to running processes a JDK is needed, with `JAVA_HOME` pointing to the installation folder.
 
 ## Building
 
