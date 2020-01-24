@@ -89,6 +89,27 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.6.0</version>
+        <executions>
+          <execution>
+            <id>run-test-script</id>
+            <phase>integration-test</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <executable>src/test/docker/test.sh</executable>
+          <arguments>
+            <argument>attach</argument>
+            <argument>target/${project.artifactId}-${project.version}.jar</argument>
+          </arguments>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 

@@ -1,0 +1,17 @@
+ARG JAVA_IMAGE_TAG=8
+ARG TOMCAT_VERSION=7.0.99
+
+FROM openjdk:$JAVA_IMAGE_TAG
+ARG TOMCAT_VERSION
+
+RUN export MAJOR_VERSION=${TOMCAT_VERSION%%.*} && \
+    export DOWNLOAD_URL="https://www.apache.org/dyn/closer.cgi?action=download&filename=tomcat/tomcat-$MAJOR_VERSION/v$TOMCAT_VERSION/bin/apache-tomcat-$TOMCAT_VERSION.tar.gz" && \
+    echo $DOWNLOAD_URL && \
+    mkdir apache-tomcat && \
+	curl -sL "$DOWNLOAD_URL"  | tar -xzv --strip 1 -C apache-tomcat && \
+	rm -r apache-tomcat/webapps && \
+	mkdir -p /apache-tomcat/root && \
+	echo "PLAIN TEXT" > /apache-tomcat/root/secret.txt
+
+
+VOLUME /secrets /project

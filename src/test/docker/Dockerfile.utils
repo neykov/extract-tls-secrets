@@ -1,0 +1,5 @@
+FROM alpine
+
+VOLUME ["/dump"]
+
+RUN apk --no-cache add tcpdump tshark

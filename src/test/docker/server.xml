@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Server>
+  <Service name="Catalina">
+    <Connector port="443" protocol="org.apache.coyote.http11.Http11NioProtocol"
+               keystoreFile="${keystore.file}" keystorePass="password" keyPass="password"
+               SSLEnabled="true" />
+    <Engine name="Catalina" defaultHost="localhost">
+      <Host name="localhost">
+          <Context docBase="/apache-tomcat/root" path="" />
+      </Host>
+    </Engine>
+  </Service>
+</Server>
