@@ -29,7 +29,7 @@ public class AttachHelper {
             throw error(pid, e);
         }
     }
-    
+
     public static String list() {
         StringBuilder msg = new StringBuilder();
         for (VirtualMachineDescriptor vm : VirtualMachine.list()) {

@@ -9,6 +9,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javassist.CannotCompileException;
+import javassist.ClassClassPath;
 import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.CtMethod;
@@ -33,18 +34,18 @@ public class Transformer implements ClassFileTransformer {
             return false;
         }
 
-        public byte[] transform(String className, byte[] classfileBuffer, String jarFile) {
+       public byte[] transform(String className, byte[] classfileBuffer, String jarFile) {
             if (handles(className)) {
                 try {
                     ClassPool pool = new ClassPool();
                     pool.appendSystemPath();
-                    // Needed for Java 9.
-                    pool.appendClassPath(jarFile);
+                    // Needed for Java 9+
+                    pool.insertClassPath(new ClassClassPath(Transformer.class));
                     CtClass instrumentedClass = pool.makeClass(new ByteArrayInputStream(classfileBuffer));
                     instrumentClass(instrumentedClass);
                     return instrumentedClass.toBytecode();
                 } catch (Throwable e) {
-                    log.log(Level.WARNING, "Error instrumenting " + className, e);
+                    log.log(Level.WARNING, "Failed instrumenting " + className, e);
                     if (e instanceof InterruptedException) {
                         Thread.currentThread().interrupt();
                     }
@@ -55,7 +56,7 @@ public class Transformer implements ClassFileTransformer {
 
         protected abstract void instrumentClass(CtClass instrumentedClass) throws CannotCompileException, NotFoundException;
     }
-    
+
     private static class SessionInjectCallback extends InjectCallback {
         public SessionInjectCallback() {
             super(new String[] {"sun.security.ssl.SSLSessionImpl", "com.sun.net.ssl.internal.ssl.SSLSessionImpl"});
@@ -67,7 +68,7 @@ public class Transformer implements ClassFileTransformer {
             method.insertAfter(MasterSecretCallback.class.getName() + ".onMasterSecret(this, $1);");
         }
     }
-    
+
     private static class HandshakerInjectCallback extends InjectCallback {
 
         public HandshakerInjectCallback() {
@@ -79,17 +80,36 @@ public class Transformer implements ClassFileTransformer {
             CtMethod method = instrumentedClass.getDeclaredMethod("calculateConnectionKeys");
             method.insertBefore(MasterSecretCallback.class.getName() + ".onCalculateKeys(session, clnt_random, $1);");
         }
-        
+
     }
-    
-    private static final InjectCallback[] TRANSFORMERS = new InjectCallback[] {new SessionInjectCallback(), new HandshakerInjectCallback()};
+
+    private static class SSLTrafficKeyDerivation extends InjectCallback {
+
+        public SSLTrafficKeyDerivation() {
+            super(new String[] {"sun.security.ssl.SSLTrafficKeyDerivation"});
+        }
+
+        @Override
+        protected void instrumentClass(CtClass instrumentedClass) throws CannotCompileException, NotFoundException {
+            CtMethod method = instrumentedClass.getDeclaredMethod("createKeyDerivation");
+            method.insertAfter(MasterSecretCallback.class.getName() + ".onKeyDerivation($1, $2);");
+        }
+
+    }
+
+    private static final InjectCallback[] TRANSFORMERS = new InjectCallback[] {
+            new SessionInjectCallback(),
+            new HandshakerInjectCallback(),
+            new SSLTrafficKeyDerivation()
+    };
     private File jarFile;
-    
+
 
     public Transformer(File jarFile) {
         this.jarFile = jarFile;
     }
 
+    @Override
     public byte[] transform(
             ClassLoader loader,
             String classPath,

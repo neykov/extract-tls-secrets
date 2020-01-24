@@ -45,7 +45,7 @@ public class AgentMain {
      * The agent is loaded in the App class loader. Instrumented
      * classes are in the boot class loader so can't see "MasterSecretCallback"
      * by default. Adding self to the boot class loader will make
-     * MasterSecretCallback visible to core classes. Not that this leads
+     * MasterSecretCallback visible to core classes. Note that this leads
      * to a split-brain state where some classes of the jar are loaded
      * by the App class loader and some in the boot class loader.
      */
@@ -69,7 +69,7 @@ public class AgentMain {
     }
 
     // When attaching to a running VM, the classes we are interested
-    // in might already be loaded and used. Need to force a reload
+    // in might already have been loaded and used. Need to force a reload
     // so our transformer kicks in.
     private static void reloadClasses(Instrumentation inst) {
         for (Class<?> loadedClass : inst.getAllLoadedClasses()) {

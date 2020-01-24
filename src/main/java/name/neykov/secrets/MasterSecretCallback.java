@@ -5,9 +5,13 @@ import java.io.IOException;
 import java.io.Writer;
 import java.lang.reflect.Field;
 import java.security.Key;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import javax.crypto.SecretKey;
 import javax.net.ssl.SSLSession;
 
 //Secrets file format:
@@ -41,6 +45,33 @@ public class MasterSecretCallback {
         }
     }
 
+    private static Map<String, String> TLS13_SECRET_NAMES;
+    static {
+        Map<String, String> secrets = new HashMap<String, String>();
+        secrets.put("TlsClientEarlyTrafficSecret", "CLIENT_EARLY_TRAFFIC_SECRET");
+        secrets.put("TlsEarlyExporterMasterSecret", "EARLY_EXPORTER_SECRET");
+        secrets.put("TlsClientHandshakeTrafficSecret", "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
+        secrets.put("TlsServerHandshakeTrafficSecret", "SERVER_HANDSHAKE_TRAFFIC_SECRET");
+        secrets.put("TlsClientAppTrafficSecret", "CLIENT_TRAFFIC_SECRET_0");
+        secrets.put("TlsServerAppTrafficSecret", "SERVER_TRAFFIC_SECRET_0");
+        secrets.put("TlsExporterMasterSecret", "EXPORTER_SECRET");
+        TLS13_SECRET_NAMES = Collections.unmodifiableMap(secrets);
+    }
+
+    public static void onKeyDerivation(Object context, SecretKey key) {
+        String secretName = TLS13_SECRET_NAMES.get(key.getAlgorithm());
+        if (secretName == null) {
+            return;
+        }
+        try {
+            Object clientRandom = get(context, "clientHelloRandom");
+            String clientRandomBytes = bytesToHex((byte[]) get(clientRandom, "randomBytes"));
+            write(secretName + " " + clientRandomBytes + " " + bytesToHex(key.getEncoded()));
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving client random secret from " + context, e);
+        }
+    }
+
     private static synchronized void write(String secret) throws IOException {
         Writer out = new FileWriter(secretsFileName, true);
         out.write(secret);
@@ -51,7 +82,7 @@ public class MasterSecretCallback {
     private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
     private static String bytesToHex(byte[] bytes) {
         char[] hexChars = new char[bytes.length * 2];
-        for ( int j = 0; j < bytes.length; j++ ) {
+        for (int j = 0; j < bytes.length; j++) {
             int v = bytes[j] & 0xFF;
             hexChars[j * 2] = hexArray[v >>> 4];
             hexChars[j * 2 + 1] = hexArray[v & 0x0F];
@@ -60,8 +91,16 @@ public class MasterSecretCallback {
     }
 
     private static Object get(Object newObj, String field) throws IllegalAccessException, NoSuchFieldException {
-        Field f = newObj.getClass().getDeclaredField(field);
-        f.setAccessible(true);
-        return f.get(newObj);
+        Class<?> type = newObj.getClass();
+        while (type != null) {
+            try {
+                Field f = type.getDeclaredField(field);
+                f.setAccessible(true);
+                return f.get(newObj);
+            } catch (NoSuchFieldException e) {
+                type = type.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(field);
     }
 }
