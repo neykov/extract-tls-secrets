@@ -8,7 +8,7 @@ for use with Wireshark. Works with connections established with the
 
 ## Download
 
-Download [extract-ssl-secrets-2.0.0.jar](https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/2.0.0/extract-ssl-secrets-2.0.0.jar).
+Download [extract-ssl-secrets-3.0.0.jar](https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/3.0.0/extract-ssl-secrets-3.0.0.jar).
 
 ## Usage
 
@@ -17,23 +17,23 @@ install with `JAVA_HOME` pointing to it (see next paragraph for JRE only).
 First list the available process IDs with:
 
 ```
-java -jar extract-ssl-secrets-2.0.0.jar list
+java -jar extract-ssl-secrets-3.0.0.jar list
 ```
 
 Next attach to the process by executing:
 
 ```
-java -jar extract-ssl-secrets-2.0.0.jar <pid> [<path to secrets log file>]
+java -jar extract-ssl-secrets-3.0.0.jar <pid> [<path to secrets log file>]
 ```
 
 If no JDK is installed it's still possible to attach to a Java process. 
 Use the JVM startup option 
-`-javaagent:<path to jar>/extract-ssl-secrets-2.0.0.jar[=<path to secrets log file>]`.
+`-javaagent:<path to jar>/extract-ssl-secrets-3.0.0.jar[=<path to secrets log file>]`.
 
 For example:
 
 ```
-java -javaagent:extract-ssl-secrets-2.0.0.jar=/tmp/secrets.log -jar MyApp.jar
+java -javaagent:extract-ssl-secrets-3.0.0.jar=/tmp/secrets.log -jar MyApp.jar
 ```
 
 By default the keys are logged to `ssl-master-secrets.txt` in the target
