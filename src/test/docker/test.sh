@@ -11,11 +11,12 @@ case "$1" in
   *) echo "Invalid parameter"; exit 1
 esac
 
+JAR_PATH=$2
+
 CWD="$( cd "$(dirname "$0")" ; pwd -P )"
 ROOT=$( cd "$CWD/../../.." && pwd )
 TEST_TMP="$ROOT/target/test/temp"
 SECRETS_VOLUME="$TEST_TMP/secrets"
-JAR_PATH="target/extract-ssl-secrets-2.1.0-SNAPSHOT.jar"
 
 rm -r $TEST_TMP || true
 mkdir -p $SECRETS_VOLUME
