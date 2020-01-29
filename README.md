@@ -51,10 +51,14 @@ Configure the path in
 Alternatively start Wireshark with:
 
 ```
-wireshark -o ssl.keylog_file:/tmp/secrets.log
+wireshark -o tls.keylog_file:/tmp/secrets.log
 ```
 
 The packets will be decrypted in real-time.
+
+For a step by step tutorial of using the secrets log file (SSLKEYLOGFILE as referenced usually)
+refer to the Peter Wu's [Debugging TLS issues with Wireshark](https://lekensteyn.nl/files/wireshark-tls-debugging-sharkfest19eu.pdf)
+presentation.
 
 ## Requirements
 
