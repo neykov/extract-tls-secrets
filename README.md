@@ -46,7 +46,7 @@ java -jar ~/Downloads/extract-ssl-secrets-3.0.0.jar <pid> /tmp/secrets.log
 
 To decrypt the capture you need to let Wireshark know where the secrets file is. 
 Configure the path in
-`Preferences > Protocols > TSL (SSL for older versions) > (Pre)-Master-Secret log filename`.
+`Preferences > Protocols > TLS (SSL for older versions) > (Pre)-Master-Secret log filename`.
 
 Alternatively start Wireshark with:
 
@@ -58,7 +58,7 @@ The packets will be decrypted in real-time.
 
 For a step by step tutorial of using the secrets log file (SSLKEYLOGFILE as referenced usually)
 refer to the Peter Wu's [Debugging TLS issues with Wireshark](https://lekensteyn.nl/files/wireshark-tls-debugging-sharkfest19eu.pdf)
-presentation.
+presentation. Even more information can be found at the [Wireshark TLS](https://wiki.wireshark.org/TLS) page. 
 
 ## Requirements
 
