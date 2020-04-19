@@ -6,15 +6,15 @@
   <artifactId>extract-ssl-secrets</artifactId>
   <version>3.1.0-SNAPSHOT</version>
 
-  <name>Extract SSL Master Secret</name>
+  <name>Extract TLS Master Secret</name>
   <description>
-    Decrypt HTTPS/SSL/TLS connections on-the-fly with Wireshark.
+    Decrypt HTTPS/TLS connections on-the-fly with Wireshark.
 
     Extracts the shared master key used in secure connections (SSL &amp; TLS)
     for use with Wireshark. Works with connections established with the
     (Java provided) javax.net.ssl.SSLSocket API.
   </description>
-  <url>https://github.com/neykov/extract-ssl-secrets</url>
+  <url>https://github.com/neykov/extract-tls-secrets</url>
 
   <licenses>
     <license>
@@ -31,9 +31,9 @@
   </developers>
 
   <scm>
-    <connection>scm:git:https://github.com/neykov/extract-ssl-secrets.git</connection>
-    <developerConnection>scm:git:ssh://github.com:neykov/extract-ssl-secrets.git</developerConnection>
-    <url>http://github.com/neykov/extract-ssl-secrets</url>
+    <connection>scm:git:https://github.com/neykov/extract-tls-secrets.git</connection>
+    <developerConnection>scm:git:ssh://github.com:neykov/extract-tls-secrets.git</developerConnection>
+    <url>http://github.com/neykov/extract-tls-secrets</url>
   </scm>
 
   <properties>

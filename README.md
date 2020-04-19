@@ -1,4 +1,4 @@
-# extract-ssl-secrets
+# extract-tls-secrets
 
 Decrypt HTTPS/TLS connections on-the-fly. Extract the shared secrets from 
 secure TLS connections for use with [Wireshark](https://www.wireshark.org/).
@@ -67,8 +67,8 @@ Requires at least Java 6.
 ## Building
 
 ```
-git clone https://github.com/neykov/extract-ssl-secrets.git
-cd extract-ssl-secrets
+git clone https://github.com/neykov/extract-tls-secrets.git
+cd extract-tls-secrets
 mvn clean package
 ```
 
