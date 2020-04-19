@@ -6,23 +6,23 @@ Attach to a Java process on either side of the connection to start decrypting.
 
 ## Usage
 
-Download from [extract-ssl-secrets-3.0.0.jar](https://repo1.maven.org/maven2/name/neykov/extract-ssl-secrets/3.0.0/extract-ssl-secrets-3.0.0.jar).
+Download from [extract-tls-secrets-4.0.0.jar](https://repo1.maven.org/maven2/name/neykov/extract-tls-secrets/4.0.0/extract-tls-secrets-4.0.0.jar).
 Then attach to a Java process in one of two ways:
 
 ### Attach on startup 
 
-Add a startup argument to the JVM options: `-javaagent:<path to jar>/extract-ssl-secrets-3.0.0.jar=<path to secrets log file>`
+Add a startup argument to the JVM options: `-javaagent:<path to jar>/extract-tls-secrets-4.0.0.jar=<path to secrets log file>`
 
 For example to launch an application from a jar file run:
 
 ```shell script
-java -javaagent:~/Downloads/extract-ssl-secrets-3.0.0.jar=/tmp/secrets.log -jar MyApp.jar
+java -javaagent:~/Downloads/extract-tls-secrets-4.0.0.jar=/tmp/secrets.log -jar MyApp.jar
 ```
 
 To launch in Tomcat add the parameter to `CATALINA_OPTS`:
 
 ```shell script
-CATALINA_OPTS=-javaagent:~/Downloads/extract-ssl-secrets-3.0.0.jar=/tmp/secrets.log bin/catalina.sh run
+CATALINA_OPTS=-javaagent:~/Downloads/extract-tls-secrets-4.0.0.jar=/tmp/secrets.log bin/catalina.sh run
 ```
 
 ### Attach to a runing process
@@ -33,13 +33,13 @@ pointing to it.
 To list the available process IDs run:
 
 ```
-java -jar ~/Downloads/extract-ssl-secrets-3.0.0.jar list
+java -jar ~/Downloads/extract-tls-secrets-4.0.0.jar list
 ```
 
 Next attach to the process by executing:
 
 ```
-java -jar ~/Downloads/extract-ssl-secrets-3.0.0.jar <pid> /tmp/secrets.log
+java -jar ~/Downloads/extract-tls-secrets-4.0.0.jar <pid> /tmp/secrets.log
 ```
 
 ### Decrypt the capture in Wireshark
