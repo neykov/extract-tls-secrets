@@ -7,6 +7,13 @@ import java.net.URL;
 import java.net.URLClassLoader;
 
 public class AgentAttach {
+    private static class MessageException extends Exception {
+        private String[] msg;
+
+        private MessageException(String... msg) {
+            this.msg = msg;
+        }
+    }
 
     // Called on "java -jar" execution. Will attach self to the target process.
     public static void main(String[] args) throws Exception {
@@ -39,6 +46,17 @@ public class AgentAttach {
             logFile = args[1];
         }
 
+        try {
+            attach(jarUrl, jarFile, pid, logFile);
+        } catch (MessageException e) {
+            for (String line : e.msg) {
+                System.err.println(line);
+            }
+            System.exit(1);
+        }
+    }
+
+    public static void attach(URL jarUrl, File jarFile, String pid, String logFile) throws Exception {
         if (isAttachApiAvailable()) {
             // Either Java 9 or tools.jar already on classpath
             if (pid.equals("list")) {
@@ -48,16 +66,12 @@ public class AgentAttach {
                     AttachHelper.attach(pid, jarFile.getAbsolutePath(), logFile);
                     System.out.println("Successfully attached to process ID " + pid + ".");
                 } catch (IllegalStateException e) {
-                    System.err.println(e.getMessage() != null ? e.getMessage() : "Failed attaching to java process " + pid);
-                    System.exit(1);
+                    String msg = e.getMessage() != null ? e.getMessage() : "Failed attaching to java process " + pid;
+                    throw new MessageException(msg);
                 }
             }
         } else {
-            File toolsFile = getToolsFileOrComplain();
-            if (toolsFile == null) {
-                System.exit(1);
-            }
-
+            File toolsFile = getToolsFile();
             URL toolsUrl = toolsFile.toURI().toURL();
             URL[] cp = new URL[] {jarUrl, toolsUrl};
             URLClassLoader classLoader = new URLClassLoader(cp, null);
@@ -74,19 +88,16 @@ public class AgentAttach {
                     System.out.println("Successfully attached to process ID " + pid + ".");
                 } catch (InvocationTargetException e) {
                     Throwable cause = e.getCause();
-                    System.err.println(cause.getMessage() != null ? cause.getMessage() : "Failed attaching to java process " + pid);
-                    System.exit(1);
+                    String msg = cause.getMessage() != null ? cause.getMessage() : "Failed attaching to java process " + pid;
+                    throw new MessageException(msg);
                 }
             }
         }
 
     }
 
-    private static File getToolsFileOrComplain() {
-        File javaHome = getJavaHomeOrComplain();
-        if (javaHome == null) {
-            return null;
-        }
+    private static File getToolsFile() throws MessageException {
+        File javaHome = getJavaHome();
 
         // javaHome is a JDK
         File toolsFile = new File(javaHome, "lib/tools.jar");
@@ -112,19 +123,19 @@ public class AgentAttach {
             return localToolsFile;
         }
 
-        System.err.println("Invalid JAVA_HOME environment variable '" + javaHome.getAbsolutePath() + "'.");
-        System.err.println("Must point to a local JDK installation containing a 'lib/tools.jar' file.");
-        return null;
+        throw new MessageException(
+            "Invalid JAVA_HOME environment variable '" + javaHome.getAbsolutePath() + "'.",
+            "Must point to a local JDK installation containing a 'lib/tools.jar' file."
+        );
     }
 
-    private static File getJavaHomeOrComplain() {
+    private static File getJavaHome() throws MessageException {
         String javaHomeEnv = System.getenv("JAVA_HOME");
         if (javaHomeEnv != null) {
             return new File(javaHomeEnv);
         }
 
-        System.err.println("No JAVA_HOME environment variable found. Must point to a local JDK installation.");
-        return null;
+        throw new MessageException("No JAVA_HOME environment variable found. Must point to a local JDK installation.");
     }
 
     private static boolean isAttachApiAvailable() {
