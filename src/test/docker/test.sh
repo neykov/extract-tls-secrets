@@ -17,6 +17,7 @@ CWD="$( cd "$(dirname "$0")" ; pwd -P )"
 ROOT=$( cd "$CWD/../../.." && pwd )
 TEST_TMP="$ROOT/target/test/temp"
 SECRETS_VOLUME="$TEST_TMP/secrets"
+JAVA_VERSIONS="15 14 13 12 11 10 9 8 7 6"
 
 $CWD/test_errors.sh $JAR_PATH
 
@@ -34,7 +35,7 @@ cat <<EOF | docker run -i --rm --name ssl-secrets-keystore --network none \
       -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore
 EOF
 
-for JAVA_IMAGE_TAG in 15 14 13 12 11 10 9 8 7 6; do
+for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
 
   RUNNING_CONTAINERS="$(docker ps -qa)"
   if [ -n "$RUNNING_CONTAINERS" ]; then

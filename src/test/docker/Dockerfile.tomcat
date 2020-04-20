@@ -1,17 +1,20 @@
 ARG JAVA_IMAGE_TAG=8
 ARG TOMCAT_VERSION=7.0.103
 
-FROM openjdk:$JAVA_IMAGE_TAG
+FROM alpine:latest
 ARG TOMCAT_VERSION
 
 RUN export MAJOR_VERSION=${TOMCAT_VERSION%%.*} && \
     export DOWNLOAD_URL="https://www.apache.org/dyn/closer.cgi?action=download&filename=tomcat/tomcat-$MAJOR_VERSION/v$TOMCAT_VERSION/bin/apache-tomcat-$TOMCAT_VERSION.tar.gz" && \
     echo $DOWNLOAD_URL && \
     mkdir apache-tomcat && \
-	curl -sL "$DOWNLOAD_URL"  | tar -xzv --strip 1 -C apache-tomcat && \
+	wget "$DOWNLOAD_URL" -O apache-tomcat.tar.gz && \
+	tar -xzvf apache-tomcat.tar.gz --strip 1 -C apache-tomcat && \
 	rm -r apache-tomcat/webapps && \
 	mkdir -p /apache-tomcat/root && \
 	echo "PLAIN TEXT" > /apache-tomcat/root/secret.txt
 
+FROM openjdk:$JAVA_IMAGE_TAG
+COPY --from=0 /apache-tomcat /apache-tomcat
 
 VOLUME /secrets /project

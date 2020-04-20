@@ -9,6 +9,10 @@ JAR_PATH=$1
 CWD="$( cd "$(dirname "$0")" ; pwd -P )"
 ROOT=$( cd "$CWD/../../.." && pwd )
 
+docker image pull openjdk:8
+docker image pull openjdk:8-jre
+docker image pull openjdk:11-jre
+
 OUT=$(docker run --rm --network none \
   -v $ROOT:/project \
   openjdk:8 \
