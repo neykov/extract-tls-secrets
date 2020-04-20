@@ -93,10 +93,21 @@ public class AgentAttach {
             return localToolsFile;
         }
 
-        throw new MessageException(
-            "Invalid JAVA_HOME environment variable '" + javaHome.getAbsolutePath() + "'.",
-            "Must point to a local JDK installation containing a 'lib/tools.jar' file."
-        );
+        // Java version format:
+        // * Java 8 and lower: 1.X.0 (e.x. 1.6.0, 1.7.0, 1.8.0)
+        // * Java 9 and higher: X.0.0 (e.x. 9.0.0, 11.0.0)
+        if (System.getProperty("java.version").startsWith("1.")) {
+            // JAVA_HOME required
+            throw new MessageException(
+                "Invalid JAVA_HOME environment variable '" + javaHome.getAbsolutePath() + "'.",
+                "Must point to a local JDK installation containing a 'lib/tools.jar' file."
+            );
+        } else {
+            // No need for JAVA_HOME. Not executed from a JDK java executable.
+            throw new MessageException(
+                "No access to JDK classes. Make sure to use the java executable from a JDK install."
+            );
+        }
     }
 
     private static File getJavaHome() throws MessageException {

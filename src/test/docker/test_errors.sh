@@ -30,8 +30,7 @@ OUT=$(docker run --rm --network none \
   openjdk:11-jre \
   java -jar /project/$JAR_PATH list 2>&1)
 
-[[ "$OUT" == *"Invalid JAVA_HOME environment variable"* ]] || exit 1
-[[ "$OUT" == *"Must point to a local JDK installation containing a 'lib/tools.jar'"* ]] || exit 1
+[[ "$OUT" == *"No access to JDK classes. Make sure to use the java executable from a JDK install."* ]] || exit 1
 
 OUT=$(docker run --rm --network none \
   -v $ROOT:/project \
