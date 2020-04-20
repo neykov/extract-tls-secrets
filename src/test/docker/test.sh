@@ -18,6 +18,8 @@ ROOT=$( cd "$CWD/../../.." && pwd )
 TEST_TMP="$ROOT/target/test/temp"
 SECRETS_VOLUME="$TEST_TMP/secrets"
 
+$CWD/test_errors.sh $JAR_PATH
+
 rm -r $TEST_TMP || true
 mkdir -p $SECRETS_VOLUME
 
@@ -63,6 +65,7 @@ for JAVA_IMAGE_TAG in 15 14 13 12 11 10 9 8 7 6; do
   done
 
   if [ "$INJECT_TYPE" = "attach" ]; then
+    docker exec ssl-secrets-tomcat java -jar /project/$JAR_PATH list
     docker exec ssl-secrets-tomcat java -jar /project/$JAR_PATH 1 /secrets/server.keys
   fi
   docker logs ssl-secrets-tomcat

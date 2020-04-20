@@ -7,14 +7,6 @@ import java.net.URL;
 import java.net.URLClassLoader;
 
 public class AgentAttach {
-    private static class MessageException extends Exception {
-        private String[] msg;
-
-        private MessageException(String... msg) {
-            this.msg = msg;
-        }
-    }
-
     // Called on "java -jar" execution. Will attach self to the target process.
     public static void main(String[] args) throws Exception {
         URL jarUrl = AgentAttach.class.getProtectionDomain().getCodeSource().getLocation();
@@ -59,17 +51,7 @@ public class AgentAttach {
     public static void attach(URL jarUrl, File jarFile, String pid, String logFile) throws Exception {
         if (isAttachApiAvailable()) {
             // Either Java 9 or tools.jar already on classpath
-            if (pid.equals("list")) {
-                System.out.print(AttachHelper.list());
-            } else {
-                try {
-                    AttachHelper.attach(pid, jarFile.getAbsolutePath(), logFile);
-                    System.out.println("Successfully attached to process ID " + pid + ".");
-                } catch (IllegalStateException e) {
-                    String msg = e.getMessage() != null ? e.getMessage() : "Failed attaching to java process " + pid;
-                    throw new MessageException(msg);
-                }
-            }
+            AttachHelper.handle(jarFile.getAbsolutePath(), pid, logFile);
         } else {
             File toolsFile = getToolsFile();
             URL toolsUrl = toolsFile.toURI().toURL();
@@ -78,20 +60,8 @@ public class AgentAttach {
             Thread.currentThread().setContextClassLoader(classLoader);
             Class<?> helper = classLoader.loadClass("name.neykov.secrets.AttachHelper");
 
-            if (pid.equals("list")) {
-                Method loadMethod = helper.getMethod("list");
-                System.out.println(loadMethod.invoke(null));
-            } else {
-                try {
-                    Method loadMethod = helper.getMethod("attach", String.class, String.class, String.class);
-                    loadMethod.invoke(null, pid, jarFile.getAbsolutePath(), logFile);
-                    System.out.println("Successfully attached to process ID " + pid + ".");
-                } catch (InvocationTargetException e) {
-                    Throwable cause = e.getCause();
-                    String msg = cause.getMessage() != null ? cause.getMessage() : "Failed attaching to java process " + pid;
-                    throw new MessageException(msg);
-                }
-            }
+            Method handleMethod = helper.getMethod("handle", String.class, String.class, String.class);
+            handleMethod.invoke(null, jarFile.getAbsolutePath(), pid, logFile);
         }
 
     }

@@ -1,5 +1,6 @@
 package name.neykov.secrets;
 
+import java.io.File;
 import java.io.IOException;
 
 import com.sun.tools.attach.AgentInitializationException;
@@ -14,7 +15,21 @@ import com.sun.tools.attach.VirtualMachineDescriptor;
 //Byte Buddy (https://github.com/raphw/byte-buddy) abstracts
 //the API, including a fallback implementing the attach api.
 public class AttachHelper {
-    public static void attach(String pid, String jarPath, String options) {
+    public static void handle(String jarPath, String pid, String logFile) throws MessageException {
+        if (pid.equals("list")) {
+            System.out.print(AttachHelper.list());
+        } else {
+            try {
+                AttachHelper.attach(pid, jarPath, logFile);
+                System.out.println("Successfully attached to process ID " + pid + ".");
+            } catch (IllegalStateException e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "Failed attaching to java process " + pid;
+                throw new MessageException(msg);
+            }
+        }
+
+    }
+    private static void attach(String pid, String jarPath, String options) {
         try {
             VirtualMachine vm = VirtualMachine.attach(pid);
             vm.loadAgent(jarPath, options);
@@ -30,7 +45,7 @@ public class AttachHelper {
         }
     }
 
-    public static String list() {
+    private static String list() {
         StringBuilder msg = new StringBuilder();
         for (VirtualMachineDescriptor vm : VirtualMachine.list()) {
             msg.append("  ").append(vm.id()).append(" ").append(vm.displayName()).append("\n");
