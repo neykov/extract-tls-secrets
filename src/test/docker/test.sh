@@ -28,6 +28,7 @@ docker network create ssl-secrets || true
 
 docker build -f $CWD/Dockerfile.utils $CWD -t ssl-secrets-utils
 
+# Passing "-deststoretype pkcs12" breaks Java 6
 cat <<EOF | docker run -i --rm --name ssl-secrets-keystore --network none \
   -v $SECRETS_VOLUME:/secrets \
   openjdk:8 bash

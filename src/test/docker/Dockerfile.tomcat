@@ -1,12 +1,13 @@
 ARG JAVA_IMAGE_TAG=8
-ARG TOMCAT_VERSION=7.0.105
+ARG TOMCAT_MAJOR_VERSION=7
 
 FROM alpine:latest
-ARG TOMCAT_VERSION
+ARG TOMCAT_MAJOR_VERSION
 
-RUN export MAJOR_VERSION=${TOMCAT_VERSION%%.*} && \
-    export DOWNLOAD_URL="https://www.apache.org/dyn/closer.cgi?action=download&filename=tomcat/tomcat-$MAJOR_VERSION/v$TOMCAT_VERSION/bin/apache-tomcat-$TOMCAT_VERSION.tar.gz" && \
-    echo $DOWNLOAD_URL && \
+RUN set -x && \
+    export DOWNLOAD_ROOT_URL="https://www.apache.org/dyn/closer.cgi?action=download&filename=tomcat/tomcat-$TOMCAT_MAJOR_VERSION/" && \
+    export TOMCAT_VERSION=$(wget -qO - "$DOWNLOAD_ROOT_URL" | grep "v$TOMCAT_MAJOR_VERSION" | sed "s@.*v\($TOMCAT_MAJOR_VERSION[^/]*\).*@\1@") && \
+    export DOWNLOAD_URL="$DOWNLOAD_ROOT_URL/v$TOMCAT_VERSION/bin/apache-tomcat-$TOMCAT_VERSION.tar.gz" && \
     mkdir apache-tomcat && \
 	wget "$DOWNLOAD_URL" -O apache-tomcat.tar.gz && \
 	tar -xzvf apache-tomcat.tar.gz --strip 1 -C apache-tomcat && \
@@ -15,6 +16,10 @@ RUN export MAJOR_VERSION=${TOMCAT_VERSION%%.*} && \
 	echo "PLAIN TEXT" > /apache-tomcat/root/secret.txt
 
 FROM openjdk:$JAVA_IMAGE_TAG
+ARG JAVA_IMAGE_TAG
+
 COPY --from=0 /apache-tomcat /apache-tomcat
+# Enable TLSv1.1 for Java 16+
+RUN [ -f "/usr/java/openjdk-$JAVA_IMAGE_TAG/conf/security/java.security" ] && ( echo "jdk.tls.disabledAlgorithms=" >> /usr/java/openjdk-$JAVA_IMAGE_TAG/conf/security/java.security ) || true
 
 VOLUME /secrets /project
