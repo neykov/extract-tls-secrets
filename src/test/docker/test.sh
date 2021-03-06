@@ -81,7 +81,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
   for PROTO in "TLSv1.3" "TLSv1.1"; do
 
     case "$PROTO-$JAVA_IMAGE_TAG" in
-      "TLSv1.3-6"|"TLSv1.3-7"|"TLSv1.3-8"|"TLSv1.3-9"|"TLSv1.3-10") continue;;
+      "TLSv1.3-6"|"TLSv1.3-7"|"TLSv1.3-9"|"TLSv1.3-10") continue;;
     esac
 
     rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys || true
@@ -92,6 +92,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
       ssl-secrets-tomcat java -cp /project/target/test-classes \
       -Djavax.net.ssl.trustStore=/secrets/keystore -Djavax.net.ssl.trustStorePassword=password \
       -Dhttps.protocols=$PROTO \
+      -Djdk.tls.client.protocols=$PROTO \
       -javaagent:/project/$JAR_PATH=/secrets/client.keys \
       name.neykov.secrets.TestURLConnection https://ssl-secrets-tomcat/secret.txt
 
