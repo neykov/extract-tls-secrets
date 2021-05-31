@@ -44,14 +44,15 @@ public class AttachHelper {
             System.loadLibrary("attach");
             // All good - system is set up properly. Nothing to do.
         } catch (UnsatisfiedLinkError e) {
-            // attach.dll not on the default search path, let's try some well known locations
+            // "attach.dll" not on the default search path, let's try some well known locations.
+            // Could happen if using the JRE with JAVA_HOME pointing to a JDK install.
             if (!tryLoadLibrary("jre/bin/attach.dll")) {
-                System.out.println(
-                        "Attach provider will likely fail loading. Locate 'attach.dll' on your system, " +
-                        "typically found in '<jdk home>/jre/bin' folder for Oracle JDK installs, " +
-                        "and pass the path on startup as: "
+                throw new FailureMessageException(
+                        "Failed loading attach provider. Make sure you are running with a JDK java executable. " +
+                            "Alternatively locate 'attach.dll' on your system, typically found in " +
+                            "'<jdk home>/jre/bin' folder for Oracle JDK installs, and pass the path at startup as: ",
+                        "    java -Djava.library.path=\"<jdk home>/jre/bin\" -jar extract-tls-secrets.jar"
                 );
-                System.out.println("    java -Djava.library.path=\"<absolute path to attach.dll>\" -jar extract-tls-secrets.jar");
             }
         }
     }
@@ -77,7 +78,7 @@ public class AttachHelper {
                 return false;
             }
 
-            // Extend the path
+            // Extend the path. On good installs the path is supposed to come from "sun.boot.library.path".
             String initialPath = System.getProperty("java.library.path");
             String extendedPath;
             if (initialPath != null && initialPath.length() > 0) {
@@ -104,6 +105,7 @@ public class AttachHelper {
             // Check patching was successful
             try {
                 System.loadLibrary("attach");
+                System.out.println("Loaded attach " + attachAbsolutePath.getAbsolutePath());
                 return true;
             } catch (UnsatisfiedLinkError ex) {
             }

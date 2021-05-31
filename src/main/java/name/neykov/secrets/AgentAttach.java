@@ -55,6 +55,7 @@ public class AgentAttach {
             AttachHelper.handle(jarFile.getAbsolutePath(), pid, logFile);
         } else {
             File toolsFile = getToolsFile();
+            System.out.println("tools.jar: " + toolsFile.getAbsolutePath());
             URL toolsUrl = toolsFile.toURI().toURL();
             URL[] cp = new URL[] {jarUrl, toolsUrl};
             URLClassLoader classLoader = new URLClassLoader(cp, null);

@@ -27,10 +27,21 @@ jobs:
         with:
           java-version: 8
           distribution: adopt
+      - name: Set up JRE 1.8
+        uses: actions/setup-java@v2
+        with:
+          java-version: 8
+          distribution: adopt
+          java-package: jre
       - name: Build and run tests
         run: |
+          $env:JAVA_HOME = "C:\hostedtoolcache\windows\Java_Adopt_jdk\8.0.292-10\x64"
           mvn -B package
-          echo %JAVA_HOME%
-          dir %JAVA_HOME%
-          dir %JAVA_HOME%\bin
+          $env:JAVA_HOME
+          $env:PATH
+          dir $env:JAVA_HOME
+          dir $env:JAVA_HOME\bin
+          # dir $env:JAVA_HOME\jre\bin
+          which java
+          java -version
           java -jar target\extract-tls-secrets-4.1.0-SNAPSHOT.jar list
