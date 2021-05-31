@@ -30,4 +30,7 @@ jobs:
       - name: Build and run tests
         run: |
           mvn -B package
+          echo %JAVA_HOME%
+          dir %JAVA_HOME%
+          dir %JAVA_HOME%\bin
           java -jar target\extract-tls-secrets-4.1.0-SNAPSHOT.jar list
