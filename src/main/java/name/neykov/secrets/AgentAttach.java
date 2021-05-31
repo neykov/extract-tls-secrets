@@ -1,6 +1,7 @@
 package name.neykov.secrets;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -40,7 +41,7 @@ public class AgentAttach {
 
         try {
             attach(jarUrl, jarFile, pid, logFile);
-        } catch (MessageException e) {
+        } catch (FailureMessageException e) {
             for (String line : e.msg) {
                 System.err.println(line);
             }
@@ -50,7 +51,7 @@ public class AgentAttach {
 
     public static void attach(URL jarUrl, File jarFile, String pid, String logFile) throws Exception {
         if (isAttachApiAvailable()) {
-            // Either Java 9 or tools.jar already on classpath
+            // Either Java 9+ or tools.jar already on classpath
             AttachHelper.handle(jarFile.getAbsolutePath(), pid, logFile);
         } else {
             File toolsFile = getToolsFile();
@@ -61,12 +62,33 @@ public class AgentAttach {
             Class<?> helper = classLoader.loadClass("name.neykov.secrets.AttachHelper");
 
             Method handleMethod = helper.getMethod("handle", String.class, String.class, String.class);
-            handleMethod.invoke(null, jarFile.getAbsolutePath(), pid, logFile);
+            try {
+                handleMethod.invoke(null, jarFile.getAbsolutePath(), pid, logFile);
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                // The cause class is loaded by "classLoader" and therefore a separate instance failing
+                // the equality test. It will not get caught by parent exception blocks.
+                if (cause.getClass().getName().equals(FailureMessageException.class.getName())) {
+                    Field msgField = cause.getClass().getDeclaredField("msg");
+                    msgField.setAccessible(true);
+                    String[] msg = (String[])msgField.get(cause);
+                    throw new FailureMessageException(msg);
+                } else {
+                    throw e;
+                }
+            }
+        }
+    }
+    static File getJavaHome() throws FailureMessageException {
+        String javaHomeEnv = System.getenv("JAVA_HOME");
+        if (javaHomeEnv != null) {
+            return new File(javaHomeEnv);
         }
 
+        throw new FailureMessageException("No JAVA_HOME environment variable found. Must point to a local JDK installation.");
     }
 
-    private static File getToolsFile() throws MessageException {
+    private static File getToolsFile() throws FailureMessageException {
         File javaHome = getJavaHome();
 
         // javaHome is a JDK
@@ -98,25 +120,16 @@ public class AgentAttach {
         // * Java 9 and higher: X.0.0 (e.x. 9.0.0, 11.0.0)
         if (System.getProperty("java.version").startsWith("1.")) {
             // JAVA_HOME required
-            throw new MessageException(
+            throw new FailureMessageException(
                 "Invalid JAVA_HOME environment variable '" + javaHome.getAbsolutePath() + "'.",
                 "Must point to a local JDK installation containing a 'lib/tools.jar' file."
             );
         } else {
             // No need for JAVA_HOME. Not executed from a JDK java executable.
-            throw new MessageException(
+            throw new FailureMessageException(
                 "No access to JDK classes. Make sure to use the java executable from a JDK install."
             );
         }
-    }
-
-    private static File getJavaHome() throws MessageException {
-        String javaHomeEnv = System.getenv("JAVA_HOME");
-        if (javaHomeEnv != null) {
-            return new File(javaHomeEnv);
-        }
-
-        throw new MessageException("No JAVA_HOME environment variable found. Must point to a local JDK installation.");
     }
 
     private static boolean isAttachApiAvailable() {

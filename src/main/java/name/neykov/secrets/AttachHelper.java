@@ -2,6 +2,7 @@ package name.neykov.secrets;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 
 import com.sun.tools.attach.AgentInitializationException;
 import com.sun.tools.attach.AgentLoadException;
@@ -15,7 +16,11 @@ import com.sun.tools.attach.VirtualMachineDescriptor;
 //Byte Buddy (https://github.com/raphw/byte-buddy) abstracts
 //the API, including a fallback implementing the attach api.
 public class AttachHelper {
-    public static void handle(String jarPath, String pid, String logFile) throws MessageException {
+    public static void handle(String jarPath, String pid, String logFile) throws FailureMessageException {
+        if (isWindows()) {
+            loadAttachLibrary();
+        }
+
         if (pid.equals("list")) {
             System.out.print(AttachHelper.list());
         } else {
@@ -24,11 +29,88 @@ public class AttachHelper {
                 System.out.println("Successfully attached to process ID " + pid + ".");
             } catch (IllegalStateException e) {
                 String msg = e.getMessage() != null ? e.getMessage() : "Failed attaching to java process " + pid;
-                throw new MessageException(msg);
+                throw new FailureMessageException(msg);
             }
         }
 
     }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").startsWith("Windows");
+    }
+
+    private static void loadAttachLibrary() throws FailureMessageException {
+        try {
+            System.loadLibrary("attach");
+            // All good - system is set up properly. Nothing to do.
+        } catch (UnsatisfiedLinkError e) {
+            // attach.dll not on the default search path, let's try some well known locations
+            if (!tryLoadLibrary("jre/bin/attach.dll")) {
+                System.out.println(
+                        "Attach provider will likely fail loading. Locate 'attach.dll' on your system, " +
+                        "typically found in '<jdk home>/jre/bin' folder for Oracle JDK installs, " +
+                        "and pass the path on startup as: "
+                );
+                System.out.println("    java -Djava.library.path=\"<absolute path to attach.dll>\" -jar extract-tls-secrets.jar");
+            }
+        }
+    }
+
+    private static File getJavaHome() throws FailureMessageException {
+        // Duplicated from AttachHelper, but can't be shared due to ClassLoader boundary
+        String javaHomeEnv = System.getenv("JAVA_HOME");
+        if (javaHomeEnv != null) {
+            return new File(javaHomeEnv);
+        }
+
+        throw new FailureMessageException("No JAVA_HOME environment variable found. Must point to a local JDK installation.");
+    }
+
+    private static boolean tryLoadLibrary(String attachPath) throws FailureMessageException {
+        File javaHome = getJavaHome();
+        File attachAbsolutePath = new File(javaHome, attachPath);
+        if (attachAbsolutePath.exists()) {
+            // Check the file path is a valid library
+            try {
+                System.load(attachAbsolutePath.getAbsolutePath());
+            } catch (UnsatisfiedLinkError ex) {
+                return false;
+            }
+
+            // Extend the path
+            String initialPath = System.getProperty("java.library.path");
+            String extendedPath;
+            if (initialPath != null && initialPath.length() > 0) {
+                extendedPath = initialPath + File.pathSeparator + attachAbsolutePath.getParent();
+            } else {
+                extendedPath = attachAbsolutePath.getParent();
+            }
+            System.setProperty("java.library.path", extendedPath);
+
+            // Force reload of the java.library.path property
+            Field fieldSysPath = null;
+            try {
+                fieldSysPath = ClassLoader.class.getDeclaredField("sys_paths");
+            } catch (NoSuchFieldException ex) {
+                return false;
+            }
+            fieldSysPath.setAccessible(true);
+            try {
+                fieldSysPath.set(null, null);
+            } catch (IllegalAccessException ex) {
+                return false;
+            }
+
+            // Check patching was successful
+            try {
+                System.loadLibrary("attach");
+                return true;
+            } catch (UnsatisfiedLinkError ex) {
+            }
+        }
+        return false;
+    }
+
     private static void attach(String pid, String jarPath, String options) {
         try {
             VirtualMachine vm = VirtualMachine.attach(pid);
