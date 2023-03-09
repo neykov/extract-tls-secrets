@@ -25,7 +25,7 @@ To launch in Tomcat add the parameter to `CATALINA_OPTS`:
 CATALINA_OPTS=-javaagent:~/Downloads/extract-tls-secrets-4.0.0.jar=/tmp/secrets.log bin/catalina.sh run
 ```
 
-### Attach to a runing process
+### Attach to a running process
 
 Attaching to an existing Java process requires a JDK install with `JAVA_HOME` 
 pointing to it.
