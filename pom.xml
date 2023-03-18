@@ -100,15 +100,25 @@
             <goals>
               <goal>exec</goal>
             </goals>
+            <configuration>
+              <executable>src/test/docker/test.sh</executable>
+              <arguments>
+                <argument>attach</argument>
+                <argument>target/${project.artifactId}-${project.version}.jar</argument>
+              </arguments>
+            </configuration>
+          </execution>
+          <execution>
+            <id>run-clean-script</id>
+            <phase>clean</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>src/test/docker/clean.sh</executable>
+            </configuration>
           </execution>
         </executions>
-        <configuration>
-          <executable>src/test/docker/test.sh</executable>
-          <arguments>
-            <argument>attach</argument>
-            <argument>target/${project.artifactId}-${project.version}.jar</argument>
-          </arguments>
-        </configuration>
       </plugin>
     </plugins>
   </build>
