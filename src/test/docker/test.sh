@@ -38,6 +38,11 @@ EOF
 
 for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
 
+    echo -e "\n" \
+      "=============================================\n" \
+      "   Java $JAVA_IMAGE_TAG \n" \
+      "=============================================\n\n"
+
   RUNNING_CONTAINERS="$(docker ps -qa)"
   if [ -n "$RUNNING_CONTAINERS" ]; then
     docker rm -f $RUNNING_CONTAINERS || true
@@ -83,6 +88,11 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     case "$PROTO-$JAVA_IMAGE_TAG" in
       "TLSv1.3-6"|"TLSv1.3-7"|"TLSv1.3-9"|"TLSv1.3-10") continue;;
     esac
+
+    echo -e "\n" \
+      "=============================================\n" \
+      "   Java $JAVA_IMAGE_TAG - $PROTO\n" \
+      "=============================================\n\n"
 
     rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys || true
 
