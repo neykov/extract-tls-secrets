@@ -6,7 +6,7 @@ ARG TOMCAT_MAJOR_VERSION
 
 RUN set -x && \
     export DOWNLOAD_ROOT_URL="https://www.apache.org/dyn/closer.cgi?action=download&filename=tomcat/tomcat-$TOMCAT_MAJOR_VERSION/" && \
-    export TOMCAT_VERSION=$(wget -qO - "$DOWNLOAD_ROOT_URL" | grep "v$TOMCAT_MAJOR_VERSION" | sed "s@.*v\($TOMCAT_MAJOR_VERSION[^/]*\).*@\1@") && \
+    export TOMCAT_VERSION=$(wget -qO - "$DOWNLOAD_ROOT_URL" | grep "v$TOMCAT_MAJOR_VERSION" | sed "s@.*v\($TOMCAT_MAJOR_VERSION[^/]*\).*@\1@" | tail -n1)&& \
     export DOWNLOAD_URL="$DOWNLOAD_ROOT_URL/v$TOMCAT_VERSION/bin/apache-tomcat-$TOMCAT_VERSION.tar.gz" && \
     mkdir apache-tomcat && \
 	wget "$DOWNLOAD_URL" -O apache-tomcat.tar.gz && \
@@ -20,6 +20,7 @@ ARG JAVA_IMAGE_TAG
 
 COPY --from=0 /apache-tomcat /apache-tomcat
 # Enable TLSv1.1 for Java 16+
-RUN [ -f "/usr/java/openjdk-$JAVA_IMAGE_TAG/conf/security/java.security" ] && ( echo "jdk.tls.disabledAlgorithms=" >> /usr/java/openjdk-$JAVA_IMAGE_TAG/conf/security/java.security ) || true
+RUN [ -f "/usr/java/openjdk-$JAVA_IMAGE_TAG/conf/security/java.security" ] && ( echo "jdk.tls.disabledAlgorithms=" >> /usr/java/openjdk-$JAVA_IMAGE_TAG/conf/security/java.security ) || true && \
+    [ -f "/usr/local/openjdk-$JAVA_IMAGE_TAG/jre/lib/security/java.security" ] && ( echo "jdk.tls.disabledAlgorithms=" >> /usr/local/openjdk-$JAVA_IMAGE_TAG/jre/lib/security/java.security ) || true
 
 VOLUME /secrets /project
