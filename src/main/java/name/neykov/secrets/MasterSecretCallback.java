@@ -48,6 +48,11 @@ public class MasterSecretCallback {
     private static Map<String, String> TLS13_SECRET_NAMES;
     static {
         Map<String, String> secrets = new HashMap<String, String>();
+
+        // TLS 1.1
+        secrets.put("TlsMasterSecret", "CLIENT_RANDOM");
+
+        // TLS 1.3
         secrets.put("TlsClientEarlyTrafficSecret", "CLIENT_EARLY_TRAFFIC_SECRET");
         secrets.put("TlsEarlyExporterMasterSecret", "EARLY_EXPORTER_SECRET");
         secrets.put("TlsClientHandshakeTrafficSecret", "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
@@ -55,6 +60,7 @@ public class MasterSecretCallback {
         secrets.put("TlsClientAppTrafficSecret", "CLIENT_TRAFFIC_SECRET_0");
         secrets.put("TlsServerAppTrafficSecret", "SERVER_TRAFFIC_SECRET_0");
         secrets.put("TlsExporterMasterSecret", "EXPORTER_SECRET");
+
         TLS13_SECRET_NAMES = Collections.unmodifiableMap(secrets);
     }
 
