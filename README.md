@@ -62,7 +62,8 @@ presentation. Even more information can be found at the [Wireshark TLS](https://
 
 ## Requirements
 
-Requires at least Java 6.
+Requires at least Oracle/OpenJDK Java 6. Does not support IBM Java and custom 
+security providers like Bouncy Castle, Conscrypt.
 
 ## Building
 
