@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.Arrays;
@@ -58,8 +59,49 @@ public class AgentMain {
         }
     }
 
+  public static URL getJarFileOrClassFolder(Class<?> clz){
+    URL path = clz.getProtectionDomain().getCodeSource().getLocation();
+    log.log(Level.INFO, "get class source location is " + path);
+    if (null == path)
+    {
+      //the class is loaded by Java Extension Class Loader, not System Class Loader, so try parse by full path
+      String classFullName = clz.getName().replace('.', '/') + ".class";
+      URL selfFullResourceUrl = clz.getClassLoader().getResource(classFullName);
+      log.log(Level.INFO, "selfFullResourceUrl=" + selfFullResourceUrl);
+
+      if (null != selfFullResourceUrl){
+        String strFullUrlPath = selfFullResourceUrl.toString();
+
+        int classNameIndex = strFullUrlPath.indexOf(classFullName);
+        if (classNameIndex > 0) {
+          //sample: jar:file:/E:/CodeGithub/xxx/xxx.jar!/ , so need remove "jar:" and "!/"
+          String strRealUrl = strFullUrlPath.substring(0, classNameIndex);
+
+          int startIndex = 0;
+          int endIndex = strRealUrl.length();
+          if(strRealUrl.startsWith("jar:")){
+            startIndex = 4;
+          }
+          if(strRealUrl.endsWith("!/")) {
+            endIndex = strRealUrl.length() - 2;
+          }
+          strRealUrl = strRealUrl.substring(startIndex, endIndex);
+          log.log(Level.INFO, "selfFullResourceUrl=" + selfFullResourceUrl);
+          try {
+            path = new URL(strRealUrl);
+          } catch (MalformedURLException e) {
+            log.log(Level.WARNING, "generate URL failed, strRealUrl = " + strRealUrl, e);
+            path = null;
+          }
+        }
+      }
+    }
+    //URLDecoder.decode(path.getPath(), StandardCharsets.UTF_8);
+    return path;
+  }
+
     private static File getJarFile() {
-        URL jarUrl = AgentMain.class.getProtectionDomain().getCodeSource().getLocation();
+        URL jarUrl = getJarFileOrClassFolder(AgentMain.class);
         try {
             return new File(jarUrl.toURI());
         } catch (URISyntaxException e) {
