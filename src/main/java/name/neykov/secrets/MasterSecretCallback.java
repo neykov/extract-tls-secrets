@@ -14,6 +14,9 @@ import java.util.logging.Logger;
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLSession;
 
+import java.util.Date;
+import java.text.SimpleDateFormat;
+
 //Secrets file format:
 //https://github.com/boundary/wireshark/blob/d029f48e4fd74b09848fc309630e5dfdc5d602f2/epan/dissectors/packet-ssl-utils.c#L4164-L4182
 public class MasterSecretCallback {
@@ -27,13 +30,21 @@ public class MasterSecretCallback {
 
     public static void onMasterSecret(SSLSession sslSession, Key masterSecret) {
         try {
+            SimpleDateFormat formatoFecha = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
+            String dateNow = formatoFecha.format(new Date());
+
+            String peerHost = sslSession.getPeerHost();
+            int portHost = sslSession.getPeerPort();
+            String protocol = sslSession.getProtocol();
+            String cipherSuite = sslSession.getCipherSuite();
             String sessionKey = bytesToHex(sslSession.getId());
             String masterKey = bytesToHex(masterSecret.getEncoded());
-            write("RSA Session-ID:" + sessionKey + " Master-Key:" + masterKey);
+            write(dateNow + " RSA Session-ID:" + sessionKey + " peerHost:"+peerHost+":"+portHost + " CipherSuite:"+cipherSuite+ " Proto:"+protocol +" Master-Key:" + masterKey);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
     }
+
 
     public static void onCalculateKeys(SSLSession sslSession, Object randomCookie, Key masterSecret) {
         try {
