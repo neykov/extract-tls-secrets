@@ -23,34 +23,55 @@ public class MasterSecretCallback {
     private static final Logger log = Logger.getLogger(MasterSecretCallback.class.getName());
     private static final String NL = System.getProperty("line.separator");
 
+    private static SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSXXX");
+
     private static String secretsFileName;
     public static void setSecretsFileName(String secretsFileName) {
         MasterSecretCallback.secretsFileName = secretsFileName;
     }
 
+    private static String getConnectionDetails(SSLSession sslSession) {
+        String dateNow;
+        synchronized (DATE_FMT) {
+            dateNow = DATE_FMT.format(new Date());
+        }
+
+        String peerHost = sslSession.getPeerHost();
+        int portHost = sslSession.getPeerPort();
+        String protocol = sslSession.getProtocol();
+        String cipherSuite = sslSession.getCipherSuite();
+        String peerHostSection = "";
+        if (peerHost != null) {
+            peerHostSection = "Peer: " + peerHost + ":" + portHost + ", ";
+        }
+        String connectionDetails =
+                "# " + dateNow + " " + peerHostSection +
+                "CipherSuite: " + cipherSuite + ", Protocol: " + protocol;
+        return connectionDetails;
+    }
+
     public static void onMasterSecret(SSLSession sslSession, Key masterSecret) {
         try {
-            SimpleDateFormat formatoFecha = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
-            String dateNow = formatoFecha.format(new Date());
-
-            String peerHost = sslSession.getPeerHost();
-            int portHost = sslSession.getPeerPort();
-            String protocol = sslSession.getProtocol();
-            String cipherSuite = sslSession.getCipherSuite();
+            String connectionDetails = getConnectionDetails(sslSession);
             String sessionKey = bytesToHex(sslSession.getId());
             String masterKey = bytesToHex(masterSecret.getEncoded());
-            write(dateNow + " RSA Session-ID:" + sessionKey + " peerHost:"+peerHost+":"+portHost + " CipherSuite:"+cipherSuite+ " Proto:"+protocol +" Master-Key:" + masterKey);
+            write(
+                connectionDetails,
+                "RSA Session-ID:" + sessionKey + " Master-Key:" + masterKey
+            );
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
     }
-
-
+    
     public static void onCalculateKeys(SSLSession sslSession, Object randomCookie, Key masterSecret) {
         try {
+            String connectionDetails = getConnectionDetails(sslSession);
             String clientRandom = bytesToHex((byte[])get(randomCookie, "random_bytes"));
             String masterKey = bytesToHex(masterSecret.getEncoded());
-            write("CLIENT_RANDOM " + clientRandom + " " + masterKey);
+            write(
+                connectionDetails,
+                "CLIENT_RANDOM " + clientRandom + " " + masterKey);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
@@ -81,18 +102,22 @@ public class MasterSecretCallback {
             return;
         }
         try {
+            SSLSession sslSession = (SSLSession) get(context, "handshakeSession");
+            String connectionDetails = getConnectionDetails(sslSession);
             Object clientRandom = get(context, "clientHelloRandom");
             String clientRandomBytes = bytesToHex((byte[]) get(clientRandom, "randomBytes"));
-            write(secretName + " " + clientRandomBytes + " " + bytesToHex(key.getEncoded()));
+            write(connectionDetails, secretName + " " + clientRandomBytes + " " + bytesToHex(key.getEncoded()));
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving client random secret from " + context, e);
         }
     }
 
-    private static synchronized void write(String secret) throws IOException {
+    private static synchronized void write(String... secrets) throws IOException {
         Writer out = new FileWriter(secretsFileName, true);
-        out.write(secret);
-        out.write(NL);
+        for (String secret : secrets) {
+            out.write(secret);
+            out.write(NL);
+        }
         out.close();
     }
 
