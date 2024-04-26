@@ -12,7 +12,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.crypto.SecretKey;
+import java.security.cert.X509Certificate;
+import java.security.PrivateKey;
 import javax.net.ssl.SSLSession;
+import java.util.Base64;
 
 import java.util.Date;
 import java.text.SimpleDateFormat;
@@ -22,9 +25,9 @@ import java.text.SimpleDateFormat;
 public class MasterSecretCallback {
     private static final Logger log = Logger.getLogger(MasterSecretCallback.class.getName());
     private static final String NL = System.getProperty("line.separator");
-
+    private static final String LINE_SEPARATOR = System.getProperty("line.separator");
+    private static final Base64.Encoder b64Encoder = Base64.getMimeEncoder(64, LINE_SEPARATOR.getBytes());
     private static SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSXXX");
-
     private static String secretsFileName;
     public static void setSecretsFileName(String secretsFileName) {
         MasterSecretCallback.secretsFileName = secretsFileName;
@@ -63,7 +66,30 @@ public class MasterSecretCallback {
             log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
     }
+
+    public static void onSetLocalPrivateKey(SSLSession sslSession, PrivateKey privateKey) {
+        try {
+            //String masterKey = bytesToHex(privateKey.getEncoded());
+            String masterKey = b64Encoder.encodeToString(privateKey.getEncoded());
+            writePrivateKey(masterKey);
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
+        }
+    }
     
+    public static void onSetLocalCertificates(SSLSession sslSession, X509Certificate[] certs) {
+        try {
+            for(int i = 0; i<certs.length; i++) {
+                byte[] rawCrtText = certs[i].getEncoded();
+                String encodedCertText = b64Encoder.encodeToString(rawCrtText);
+                writeCert(encodedCertText);
+            }
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
+        }
+        
+    }
+
     public static void onCalculateKeys(SSLSession sslSession, Object randomCookie, Key masterSecret) {
         try {
             String connectionDetails = getConnectionDetails(sslSession);
@@ -118,6 +144,23 @@ public class MasterSecretCallback {
             out.write(secret);
             out.write(NL);
         }
+        out.close();
+    }
+    private static synchronized void writePrivateKey(String privateKey) throws IOException {
+        Writer out = new FileWriter(secretsFileName+".key", true);
+        out.write("-----BEGIN PRIVATE KEY-----\n");
+        out.write(privateKey);
+        out.write(NL);
+        out.write("-----END PRIVATE KEY-----");
+        out.write(NL);
+        out.close();
+    }
+    private static synchronized void writeCert(String cert) throws IOException {
+        Writer out = new FileWriter(secretsFileName+".crt", true);
+        out.write("-----BEGIN CERTIFICATE-----\n");
+        out.write(cert);
+        out.write(NL);
+        out.write("-----END CERTIFICATE-----\n");
         out.close();
     }
 

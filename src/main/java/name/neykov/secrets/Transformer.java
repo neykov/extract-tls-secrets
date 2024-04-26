@@ -66,6 +66,13 @@ public class Transformer implements ClassFileTransformer {
         protected void instrumentClass(CtClass instrumentedClass) throws CannotCompileException, NotFoundException {
             CtMethod method = instrumentedClass.getDeclaredMethod("setMasterSecret");
             method.insertAfter(MasterSecretCallback.class.getName() + ".onMasterSecret(this, $1);");
+            
+            CtMethod method2 = instrumentedClass.getDeclaredMethod("setLocalPrivateKey");
+            method2.insertAfter(MasterSecretCallback.class.getName() + ".onSetLocalPrivateKey(this, $1);");
+            
+            CtMethod method3 = instrumentedClass.getDeclaredMethod("setLocalCertificates");
+            method3.insertAfter(MasterSecretCallback.class.getName() + ".onSetLocalCertificates(this, $1);");
+
         }
     }
 
