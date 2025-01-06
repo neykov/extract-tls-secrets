@@ -31,13 +31,19 @@ docker network create ssl-secrets || true
 
 docker build -f $CWD/Dockerfile.utils $CWD -t ssl-secrets-utils
 
-# Passing "-deststoretype pkcs12" breaks Java 6
 cat <<EOF | docker run -i --rm --name ssl-secrets-keystore --network none \
   -v $SECRETS_VOLUME:/secrets \
   eclipse-temurin:8 bash
     keytool -genkey -noprompt -alias tomcat -dname "CN=ssl-secrets-tomcat, OU=Unit, O=Company, L=Sofia, ST=Unknown, C=BG" \
       -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore
 EOF
+
+ssl-secrets-utils()
+{
+  docker run --rm --network none \
+        -v $SECRETS_VOLUME:/secrets \
+        ssl-secrets-utils "$@"
+}
 
 for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
 
@@ -51,7 +57,8 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     docker rm -f $RUNNING_CONTAINERS || true
   fi
 
-  docker build -f $CWD/Dockerfile.tomcat $CWD -t ssl-secrets-tomcat --build-arg JAVA_IMAGE_TAG=$JAVA_IMAGE_TAG
+  docker build -f $CWD/Dockerfile.tomcat $CWD -t ssl-secrets-tomcat \
+    --build-arg JAVA_IMAGE_TAG=$JAVA_IMAGE_TAG
 
   if [ "$INJECT_TYPE" = "agent" ]; then
     AGENT_OPT="-javaagent:/project/$JAR_PATH=/secrets/server.keys"
@@ -68,7 +75,8 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
   while ! docker run --network ssl-secrets --rm \
       -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
       ssl-secrets-tomcat java -cp /project/target/test-classes \
-      -Djavax.net.ssl.trustStore=/secrets/keystore -Djavax.net.ssl.trustStorePassword=password \
+      -Djavax.net.ssl.trustStore=/secrets/keystore \
+      -Djavax.net.ssl.trustStorePassword=password \
       name.neykov.secrets.TestURLConnection https://ssl-secrets-tomcat/secret.txt 2> /dev/null;
   do
     sleep 1;
@@ -91,7 +99,8 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
       "   Java $JAVA_IMAGE_TAG - $PROTO\n" \
       "=============================================\n\n"
 
-    rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys $SECRETS_VOLUME/secrets.pcap || true
+    rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys \
+       $SECRETS_VOLUME/secrets.pcap || true
 
     docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-tomcat \
       -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
@@ -102,7 +111,8 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     docker run --network ssl-secrets --rm \
       -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
       ssl-secrets-tomcat java -cp /project/target/test-classes \
-      -Djavax.net.ssl.trustStore=/secrets/keystore -Djavax.net.ssl.trustStorePassword=password \
+      -Djavax.net.ssl.trustStore=/secrets/keystore \
+      -Djavax.net.ssl.trustStorePassword=password \
       -Dhttps.protocols=$PROTO \
       -Djdk.tls.client.protocols=$PROTO \
       -javaagent:/project/$JAR_PATH=/secrets/client.keys \
@@ -113,23 +123,16 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     docker stop ssl-secrets-tcpdump || true
 
     # Show captured keys
-    docker run --rm --network none \
-      -v $SECRETS_VOLUME:/secrets \
-      ssl-secrets-utils \
-      cat /secrets/server.keys /secrets/client.keys
+    ssl-secrets-utils cat /secrets/server.keys /secrets/client.keys
 
     # Check we can decrypt the capture using the server keys
-    docker run --rm --network none \
-      -v $SECRETS_VOLUME:/secrets \
-      ssl-secrets-utils tshark \
+    ssl-secrets-utils tshark \
       -o "tls.keylog_file:/secrets/server.keys" \
       -nr /secrets/secrets.pcap -q -z follow,http,ascii,0 | \
       grep 'PLAIN TEXT'
 
     # Check we can decrypt the capture using the client keys
-    docker run --rm --network none \
-      -v $SECRETS_VOLUME:/secrets \
-      ssl-secrets-utils tshark \
+    ssl-secrets-utils tshark \
       -o "tls.keylog_file:/secrets/client.keys" \
       -nr /secrets/secrets.pcap -q -z follow,http,ascii,0 | \
       grep 'PLAIN TEXT'
@@ -137,4 +140,4 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
   done
 done
 
-docker rm -f $(docker ps -qa)
+docker rm -f ssl-secrets-tomcat

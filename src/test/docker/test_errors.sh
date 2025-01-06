@@ -18,7 +18,7 @@ OUT=$(docker run --rm --network none \
   eclipse-temurin:8 \
   java -jar /project/$JAR_PATH 2>&1)
 
-[[ "$OUT" == *"Missing required argument"* ]] || exit 1
+[[ "$OUT" == *"No arguments provided"* ]] || exit 1
 [[ "$OUT" == *"Usage"* ]] || exit 1
 
 OUT=$(docker run --rm --network none \

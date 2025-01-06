@@ -1,6 +1,5 @@
-package name.neykov.secrets;
+package name.neykov.secrets.cli;
 
-import java.io.File;
 import java.io.IOException;
 
 import com.sun.tools.attach.AgentInitializationException;
@@ -9,18 +8,26 @@ import com.sun.tools.attach.AttachNotSupportedException;
 import com.sun.tools.attach.VirtualMachine;
 import com.sun.tools.attach.VirtualMachineDescriptor;
 
-//Alternative when tools.jar not available
-//https://github.com/apangin/jattach
-//
-//Byte Buddy (https://github.com/raphw/byte-buddy) abstracts
-//the API, including a fallback implementing the attach api.
+
+/**
+ * <p>
+ * A companion to AgentAttach that needs to be loaded in a different class loader, due to
+ * the com.sun.tools dependencies. When tools.jar is not already on the classpath it's
+ * added to a new class loader along with AttachHelper and loaded from there.
+ * <p>
+ * Alternative when tools.jar not available -
+ * <a href="https://github.com/apangin/jattach">jattach</a>
+ * <p>
+ * <a href="https://github.com/raphw/byte-buddy">Byte Buddy</a> abstracts
+ * the API, including a fallback implementing the attach api.
+ */
 public class AttachHelper {
-    public static void handle(String jarPath, String pid, String logFile) throws MessageException {
+    public static void handle(String jarPath, String pid, String attachOptions) throws MessageException {
         if (pid.equals("list")) {
             System.out.print(AttachHelper.list());
         } else {
             try {
-                AttachHelper.attach(pid, jarPath, logFile);
+                AttachHelper.attach(pid, jarPath, attachOptions);
                 System.out.println("Successfully attached to process ID " + pid + ".");
             } catch (IllegalStateException e) {
                 String msg = e.getMessage() != null ? e.getMessage() : "Failed attaching to java process " + pid;
@@ -59,7 +66,7 @@ public class AttachHelper {
             msg.append("\n\nNo Java process with ID ").append(pid).append(" found. Running Java processes:\n");
             msg.append(list());
         } else {
-            msg.append(" Cause: " + e.getMessage());
+            msg.append(" Cause: ").append(e.getMessage()).append(".");
         }
         return new IllegalStateException(msg.toString(), e);
     }

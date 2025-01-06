@@ -1,4 +1,6 @@
-package name.neykov.secrets;
+package name.neykov.secrets.agent;
+
+import name.neykov.secrets.Java6Compat;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -15,44 +17,25 @@ import javax.crypto.SecretKey;
 import java.security.cert.X509Certificate;
 import java.security.PrivateKey;
 import javax.net.ssl.SSLSession;
-import java.util.Base64;
 
 import java.util.Date;
 import java.text.SimpleDateFormat;
 
 //Secrets file format:
 //https://github.com/boundary/wireshark/blob/d029f48e4fd74b09848fc309630e5dfdc5d602f2/epan/dissectors/packet-ssl-utils.c#L4164-L4182
+//https://gitlab.com/wireshark/wireshark/-/blob/d24b1b08f51ce740aacd26537af131bed374e751/epan/dissectors/packet-tls-utils.c#L6814-6851
+//https://bensmyth.com/files/Smyth19-TLS-tutorial.pdf
+//https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-00.html
 public class MasterSecretCallback {
     private static final Logger log = Logger.getLogger(MasterSecretCallback.class.getName());
     private static final String NL = System.getProperty("line.separator");
-    private static final String LINE_SEPARATOR = System.getProperty("line.separator");
-    private static final Base64.Encoder b64Encoder = Base64.getMimeEncoder(64, LINE_SEPARATOR.getBytes());
-    private static SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSXXX");
+    private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ");
     private static String secretsFileName;
     public static void setSecretsFileName(String secretsFileName) {
         MasterSecretCallback.secretsFileName = secretsFileName;
     }
 
-    private static String getConnectionDetails(SSLSession sslSession) {
-        String dateNow;
-        synchronized (DATE_FMT) {
-            dateNow = DATE_FMT.format(new Date());
-        }
-
-        String peerHost = sslSession.getPeerHost();
-        int portHost = sslSession.getPeerPort();
-        String protocol = sslSession.getProtocol();
-        String cipherSuite = sslSession.getCipherSuite();
-        String peerHostSection = "";
-        if (peerHost != null) {
-            peerHostSection = "Peer: " + peerHost + ":" + portHost + ", ";
-        }
-        String connectionDetails =
-                "# " + dateNow + " " + peerHostSection +
-                "CipherSuite: " + cipherSuite + ", Protocol: " + protocol;
-        return connectionDetails;
-    }
-
+    @SuppressWarnings("unused")
     public static void onMasterSecret(SSLSession sslSession, Key masterSecret) {
         try {
             String connectionDetails = getConnectionDetails(sslSession);
@@ -67,29 +50,7 @@ public class MasterSecretCallback {
         }
     }
 
-    public static void onSetLocalPrivateKey(SSLSession sslSession, PrivateKey privateKey) {
-        try {
-            //String masterKey = bytesToHex(privateKey.getEncoded());
-            String masterKey = b64Encoder.encodeToString(privateKey.getEncoded());
-            writePrivateKey(masterKey);
-        } catch (Exception e) {
-            log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
-        }
-    }
-    
-    public static void onSetLocalCertificates(SSLSession sslSession, X509Certificate[] certs) {
-        try {
-            for(int i = 0; i<certs.length; i++) {
-                byte[] rawCrtText = certs[i].getEncoded();
-                String encodedCertText = b64Encoder.encodeToString(rawCrtText);
-                writeCert(encodedCertText);
-            }
-        } catch (Exception e) {
-            log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
-        }
-        
-    }
-
+    @SuppressWarnings("unused")
     public static void onCalculateKeys(SSLSession sslSession, Object randomCookie, Key masterSecret) {
         try {
             String connectionDetails = getConnectionDetails(sslSession);
@@ -111,6 +72,8 @@ public class MasterSecretCallback {
         secrets.put("TlsMasterSecret", "CLIENT_RANDOM");
 
         // TLS 1.3
+        // Early data is not supported in Java
+        // https://bugs.openjdk.org/browse/JDK-8209392
         secrets.put("TlsClientEarlyTrafficSecret", "CLIENT_EARLY_TRAFFIC_SECRET");
         secrets.put("TlsEarlyExporterMasterSecret", "EARLY_EXPORTER_SECRET");
         secrets.put("TlsClientHandshakeTrafficSecret", "CLIENT_HANDSHAKE_TRAFFIC_SECRET");
@@ -122,6 +85,7 @@ public class MasterSecretCallback {
         TLS13_SECRET_NAMES = Collections.unmodifiableMap(secrets);
     }
 
+    @SuppressWarnings("unused")
     public static void onKeyDerivation(Object context, SecretKey key) {
         String secretName = TLS13_SECRET_NAMES.get(key.getAlgorithm());
         if (secretName == null) {
@@ -138,29 +102,66 @@ public class MasterSecretCallback {
         }
     }
 
+    @SuppressWarnings("unused")
+    public static void onSetLocalPrivateKey(SSLSession sslSession, PrivateKey privateKey) {
+        try {
+            byte[] privateKeyData = privateKey.getEncoded();
+            String masterKey =
+                    Java6Compat.base64Encode(privateKeyData);
+            write(
+                "# LocalPrivateKey: Algorithm - " + privateKey.getAlgorithm() +
+                        ", Format: " + privateKey.getFormat(),
+                "-----BEGIN PRIVATE KEY-----",
+                masterKey,
+                "-----END PRIVATE KEY-----"
+            );
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public static void onSetLocalCertificates(SSLSession sslSession, X509Certificate[] certs) {
+        try {
+            for (X509Certificate cert : certs) {
+                byte[] certData = cert.getEncoded();
+                String encodedCertText =
+                        Java6Compat.base64Encode(certData);
+                write(
+                    "-----BEGIN CERTIFICATE-----",
+                    encodedCertText,
+                    "-----END CERTIFICATE-----"
+                );
+            }
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
+        }
+    }
+
+    private static String getConnectionDetails(SSLSession sslSession) {
+        String dateNow;
+        synchronized (DATE_FMT) {
+            dateNow = DATE_FMT.format(new Date());
+        }
+
+        String peerHost = sslSession.getPeerHost();
+        int portHost = sslSession.getPeerPort();
+        String protocol = sslSession.getProtocol();
+        String cipherSuite = sslSession.getCipherSuite();
+        String peerHostSection = "";
+        if (peerHost != null) {
+            peerHostSection = "Peer: " + peerHost + ":" + portHost + ", ";
+        }
+        return  "# " + dateNow + " " + peerHostSection +
+                        "CipherSuite: " + cipherSuite + ", Protocol: " + protocol;
+    }
+
     private static synchronized void write(String... secrets) throws IOException {
         Writer out = new FileWriter(secretsFileName, true);
         for (String secret : secrets) {
             out.write(secret);
             out.write(NL);
         }
-        out.close();
-    }
-    private static synchronized void writePrivateKey(String privateKey) throws IOException {
-        Writer out = new FileWriter(secretsFileName+".key", true);
-        out.write("-----BEGIN PRIVATE KEY-----\n");
-        out.write(privateKey);
-        out.write(NL);
-        out.write("-----END PRIVATE KEY-----");
-        out.write(NL);
-        out.close();
-    }
-    private static synchronized void writeCert(String cert) throws IOException {
-        Writer out = new FileWriter(secretsFileName+".crt", true);
-        out.write("-----BEGIN CERTIFICATE-----\n");
-        out.write(cert);
-        out.write(NL);
-        out.write("-----END CERTIFICATE-----\n");
         out.close();
     }
 

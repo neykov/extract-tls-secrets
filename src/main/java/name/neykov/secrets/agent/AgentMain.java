@@ -1,4 +1,4 @@
-package name.neykov.secrets;
+package name.neykov.secrets.agent;
 
 import java.io.File;
 import java.io.IOException;
@@ -8,7 +8,6 @@ import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -20,7 +19,9 @@ import java.util.logging.Logger;
 
 import javax.net.ssl.SSLEngine;
 
-// Loaded in the App class loader
+/**
+ * Entry point of the agent. Loaded in the "App" class loader
+ */
 public class AgentMain {
     private static final Logger log = Logger.getLogger(AgentMain.class.getName());
 
@@ -31,14 +32,14 @@ public class AgentMain {
     public static void premain(String agentArgs, Instrumentation inst) {
         File jarFile = getJarFile();
         initClassPath(inst, jarFile);
-        main(agentArgs, inst, jarFile);
+        attach(agentArgs, inst, jarFile);
     }
 
     // Called from inside the target process when attaching at runtime.
     public static void agentmain(String agentArgs, Instrumentation inst) {
         File jarFile = getJarFile();
         initClassPath(inst, jarFile);
-        main(agentArgs, inst, jarFile);
+        attach(agentArgs, inst, jarFile);
         reloadClasses(inst);
     }
 
@@ -52,6 +53,9 @@ public class AgentMain {
      */
     private static void initClassPath(Instrumentation inst, File jarFile) {
         try {
+            // Will cause the logging of:
+            //  OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader
+            //  classes because bootstrap classpath has been appended
             inst.appendToBootstrapClassLoaderSearch(new JarFile(jarFile));
         } catch (IOException e) {
             log.log(Level.WARNING, "Failed attaching to process. Can't access jar file " + jarFile, e);
@@ -61,7 +65,6 @@ public class AgentMain {
 
   public static URL getJarFileOrClassFolder(Class<?> clz){
     URL path = clz.getProtectionDomain().getCodeSource().getLocation();
-    log.log(Level.INFO, "get class source location is " + path);
     if (null == path)
     {
       //the class is loaded by Java Extension Class Loader, not System Class Loader, so try parse by full path
@@ -120,24 +123,22 @@ public class AgentMain {
                     inst.retransformClasses(loadedClass);
                 } catch (Throwable e) {
                     log.log(Level.WARNING, "Failed instrumenting " + loadedClass.getName() + ". Shared secret extraction might fail.", e);
-                    if (e instanceof InterruptedException) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
                     throw new IllegalStateException(e);
                 }
             }
         }
     }
 
-    private static void main(String agentArgs, Instrumentation inst, File jarFile) {
+    private static void attach(String agentArgs, Instrumentation inst, File jarFile) {
         openBaseModule(inst);
 
-        String canonicalSecretsPath = getCanonicalSecretsPath(agentArgs);
+        AgentArguments args = AgentArguments.parseArguments(agentArgs);
 
         // MasterSecretCallback is loaded in boot class loader
+        String canonicalSecretsPath = getCanonicalSecretsPath(args.secretsPath);
         MasterSecretCallback.setSecretsFileName(canonicalSecretsPath);
-        inst.addTransformer(new Transformer(jarFile), true);
+
+        inst.addTransformer(new Transformer(), true);
 
         log.info("Successfully attached agent " + jarFile + ". Logging to " + canonicalSecretsPath + ". ");
     }
@@ -156,9 +157,9 @@ public class AgentMain {
 
         try {
             Map<String, Set<Object>> extraOpens = new HashMap<String, Set<Object>>();
-            extraOpens.put("sun.security.ssl", new HashSet<Object>(Arrays.asList(getModule.invoke(MasterSecretCallback.class))));
+            extraOpens.put("sun.security.ssl", new HashSet<Object>(Collections.singletonList(getModule.invoke(MasterSecretCallback.class))));
 
-            Method redefineModule = Instrumentation.class.getMethod("redefineModule", 
+            Method redefineModule = Instrumentation.class.getMethod("redefineModule",
                     getModule.getReturnType(), Set.class, Map.class,
                     Map.class, Set.class, Map.class);
 
@@ -187,17 +188,17 @@ public class AgentMain {
         }
     }
 
-    private static String getCanonicalSecretsPath(String agentArgs) {
-        String secretsPath;
-        if (agentArgs != null && !agentArgs.isEmpty()) {
-            secretsPath = agentArgs;
+    private static String getCanonicalSecretsPath(String secretsPath) {
+        String secretsPathOrDefault;
+        if (secretsPath != null && !secretsPath.isEmpty()) {
+            secretsPathOrDefault = secretsPath;
         } else {
-            secretsPath = DEFAULT_SECRETS_FILE;
+            secretsPathOrDefault = DEFAULT_SECRETS_FILE;
         }
 
-        File secretsFile = new File(secretsPath);
+        File secretsFile = new File(secretsPathOrDefault);
         if (!secretsFile.isAbsolute()) {
-            secretsFile = new File(System.getProperty("user.dir"), secretsPath);
+            secretsFile = new File(System.getProperty("user.dir"), secretsPathOrDefault);
         }
 
         try {

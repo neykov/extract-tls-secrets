@@ -38,8 +38,8 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
+    <maven.compiler.source>1.6</maven.compiler.source>
+    <maven.compiler.target>1.6</maven.compiler.target>
   </properties>
 
   <dependencies>
@@ -59,9 +59,9 @@
         <configuration>
           <archive>
             <manifestEntries>
-              <Main-Class>name.neykov.secrets.AgentAttach</Main-Class>
-              <Premain-Class>name.neykov.secrets.AgentMain</Premain-Class>
-              <Agent-Class>name.neykov.secrets.AgentMain</Agent-Class>
+              <Main-Class>name.neykov.secrets.cli.AgentAttach</Main-Class>
+              <Premain-Class>name.neykov.secrets.agent.AgentMain</Premain-Class>
+              <Agent-Class>name.neykov.secrets.agent.AgentMain</Agent-Class>
               <Can-Redefine-Classes>true</Can-Redefine-Classes>
               <Can-Retransform-Classes>true</Can-Retransform-Classes>
             </manifestEntries>

@@ -1,4 +1,6 @@
-package name.neykov.secrets;
+package name.neykov.secrets.cli;
+
+import name.neykov.secrets.agent.AgentMain;
 
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
@@ -6,8 +8,10 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 
+/**
+ * Client application that will load the agent in the target process at runtime.
+ */
 public class AgentAttach {
-    // Called on "java -jar" execution. Will attach self to the target process.
     public static void main(String[] args) throws Exception {
         URL jarUrl = AgentAttach.class.getProtectionDomain().getCodeSource().getLocation();
         File jarFile = new File(jarUrl.toURI());
@@ -15,31 +19,12 @@ public class AgentAttach {
             System.err.println("The agent is not running from a jar file. Attachment will likely fail.");
         }
 
-        if (args.length == 0 || args.length > 2 || (args.length == 2 && args[0].equals("list"))) {
-            System.err.println("Missing required argument: pid (the process to attach to)");
-            System.out.println();
-            System.out.println("Usage: java -jar " + jarFile.getName() + " <pid> [<secrets_file>]");
-            System.out.println("       java -jar " + jarFile.getName() + " list");
-            System.out.println();
-            System.out.println("Options:");
-            System.out.println("  * list - shows available Java processes to attach to");
-            System.out.println("  * pid - the process ID to attach to (required)");
-            System.out.println("  * secrets_file - file path to log the shared secrets to (optional);");
-            System.out.println("                   if a relative path is used it's resolved against the target process working folder;");
-            System.out.println("                   default value is '" + AgentMain.DEFAULT_SECRETS_FILE + "'");
-            System.out.println();
-            System.out.println("Note: The location of the secrets file will be logged at INFO level in the target process.");
-            System.exit(1);
-        }
-
-        String pid = args[0];
-        String logFile = null;
-        if (args.length == 2) {
-            logFile = args[1];
-        }
-
         try {
-            attach(jarUrl, jarFile, pid, logFile);
+            CliArguments cliArguments = CliArguments.parse(args);
+            handle(jarUrl, jarFile, cliArguments.listOrPid, cliArguments.attachOptions);
+        } catch (IllegalArgumentException e) {
+            help(jarFile, e.getMessage());
+            System.exit(1);
         } catch (MessageException e) {
             for (String line : e.msg) {
                 System.err.println(line);
@@ -48,20 +33,45 @@ public class AgentAttach {
         }
     }
 
-    public static void attach(URL jarUrl, File jarFile, String pid, String logFile) throws Exception {
+    private static void help(File jarFile, String message) {
+        System.err.println(message + ".");
+        System.out.println();
+        System.out.println("Usage: java -jar " + jarFile.getName() + " <pid> [<secrets_file>]");
+        System.out.println("       java -jar " + jarFile.getName() + " list");
+        System.out.println();
+        System.out.println("Options:");
+        System.out.println("  * list - shows available Java processes to attach to");
+        System.out.println("  * pid - the process ID to attach to (required)");
+        System.out.println("  * secrets_file - file path to log the shared secrets to (optional);");
+        System.out.println("                   if a relative path is used it's resolved against the target process working folder;");
+        System.out.println("                   default value is '" + AgentMain.DEFAULT_SECRETS_FILE + "'");
+        System.out.println();
+        System.out.println("Note: The absolute path to the secrets file will be logged at INFO level in the target process.");
+    }
+
+    private static void handle(URL jarUrl, File jarFile, String listOrPid, String attachOptions) throws Exception {
         if (isAttachApiAvailable()) {
             // Either Java 9 or tools.jar already on classpath
-            AttachHelper.handle(jarFile.getAbsolutePath(), pid, logFile);
+            AttachHelper.handle(jarFile.getAbsolutePath(), listOrPid, attachOptions);
         } else {
             File toolsFile = getToolsFile();
             URL toolsUrl = toolsFile.toURI().toURL();
             URL[] cp = new URL[] {jarUrl, toolsUrl};
             URLClassLoader classLoader = new URLClassLoader(cp, null);
             Thread.currentThread().setContextClassLoader(classLoader);
-            Class<?> helper = classLoader.loadClass("name.neykov.secrets.AttachHelper");
+            Class<?> helper = classLoader.loadClass("name.neykov.secrets.cli.AttachHelper");
 
             Method handleMethod = helper.getMethod("handle", String.class, String.class, String.class);
-            handleMethod.invoke(null, jarFile.getAbsolutePath(), pid, logFile);
+            try {
+                handleMethod.invoke(null, jarFile.getAbsolutePath(), listOrPid, attachOptions);
+            } catch (InvocationTargetException e) {
+                Throwable targetEx = e.getTargetException();
+                if (targetEx.getClass().getName().equals(MessageException.class.getName())) {
+                    throw new MessageException(targetEx.getMessage().split("\n"));
+                } else {
+                    throw e;
+                }
+            }
         }
 
     }

@@ -1,10 +1,11 @@
-package name.neykov.secrets;
+package name.neykov.secrets.agent;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.lang.instrument.ClassFileTransformer;
-import java.lang.instrument.IllegalClassFormatException;
 import java.security.ProtectionDomain;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -19,22 +20,17 @@ public class Transformer implements ClassFileTransformer {
     private static final Logger log = Logger.getLogger(Transformer.class.getName());
 
     private static abstract class InjectCallback {
-        private String[] handledClasses;
+        private final Set<String> handledClasses;
 
-        public InjectCallback(String[] handledClasses) {
-            this.handledClasses = handledClasses;
+        public InjectCallback(String... handledClasses) {
+            this.handledClasses = new HashSet<String>(Arrays.asList(handledClasses));
         }
 
         public boolean handles(String className) {
-            for (String cls : handledClasses) {
-                if (className.equals(cls)) {
-                    return true;
-                }
-            }
-            return false;
+            return handledClasses.contains(className);
         }
 
-       public byte[] transform(String className, byte[] classfileBuffer, String jarFile) {
+       public byte[] transform(String className, byte[] classfileBuffer) {
             if (handles(className)) {
                 try {
                     ClassPool pool = new ClassPool();
@@ -46,9 +42,6 @@ public class Transformer implements ClassFileTransformer {
                     return instrumentedClass.toBytecode();
                 } catch (Throwable e) {
                     log.log(Level.WARNING, "Failed instrumenting " + className, e);
-                    if (e instanceof InterruptedException) {
-                        Thread.currentThread().interrupt();
-                    }
                 }
             }
             return classfileBuffer;
@@ -59,7 +52,7 @@ public class Transformer implements ClassFileTransformer {
 
     private static class SessionInjectCallback extends InjectCallback {
         public SessionInjectCallback() {
-            super(new String[] {"sun.security.ssl.SSLSessionImpl", "com.sun.net.ssl.internal.ssl.SSLSessionImpl"});
+            super("sun.security.ssl.SSLSessionImpl", "com.sun.net.ssl.internal.ssl.SSLSessionImpl");
         }
 
         @Override
@@ -69,17 +62,16 @@ public class Transformer implements ClassFileTransformer {
             
             CtMethod method2 = instrumentedClass.getDeclaredMethod("setLocalPrivateKey");
             method2.insertAfter(MasterSecretCallback.class.getName() + ".onSetLocalPrivateKey(this, $1);");
-            
+
             CtMethod method3 = instrumentedClass.getDeclaredMethod("setLocalCertificates");
             method3.insertAfter(MasterSecretCallback.class.getName() + ".onSetLocalCertificates(this, $1);");
-
         }
     }
 
     private static class HandshakerInjectCallback extends InjectCallback {
 
         public HandshakerInjectCallback() {
-            super(new String [] {"sun.security.ssl.Handshaker", "com.sun.net.ssl.internal.ssl.Handshaker"});
+            super("sun.security.ssl.Handshaker", "com.sun.net.ssl.internal.ssl.Handshaker");
         }
 
         @Override
@@ -93,7 +85,7 @@ public class Transformer implements ClassFileTransformer {
     private static class SSLTrafficKeyDerivation extends InjectCallback {
 
         public SSLTrafficKeyDerivation() {
-            super(new String[] {"sun.security.ssl.SSLTrafficKeyDerivation"});
+            super("sun.security.ssl.SSLTrafficKeyDerivation");
         }
 
         @Override
@@ -109,12 +101,6 @@ public class Transformer implements ClassFileTransformer {
             new HandshakerInjectCallback(),
             new SSLTrafficKeyDerivation()
     };
-    private File jarFile;
-
-
-    public Transformer(File jarFile) {
-        this.jarFile = jarFile;
-    }
 
     @Override
     public byte[] transform(
@@ -122,12 +108,12 @@ public class Transformer implements ClassFileTransformer {
             String classPath,
             Class<?> classBeingRedefined,
             ProtectionDomain protectionDomain,
-            byte[] classfileBuffer) throws IllegalClassFormatException {
+            byte[] classfileBuffer) {
         String className = classPath.replace("/", ".");
-        // loader should be null (boot loader), so don't use it
+        // loader should be null (bootloader), so don't use it
         for (InjectCallback ic : TRANSFORMERS) {
             if (ic.handles(className)) {
-                return ic.transform(className, classfileBuffer, jarFile.getAbsolutePath());
+                return ic.transform(className, classfileBuffer);
             }
         }
         return classfileBuffer;
