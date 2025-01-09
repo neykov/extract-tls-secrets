@@ -56,7 +56,7 @@ wireshark -o tls.keylog_file:/tmp/secrets.log
 
 The packets will be decrypted in real-time.
 
-For a step by step tutorial of using the secrets log file (SSLKEYLOGFILE as referenced usually)
+For a step-by-step tutorial of using the secrets log file (SSLKEYLOGFILE as referenced usually)
 refer to the Peter Wu's [Debugging TLS issues with Wireshark](https://lekensteyn.nl/files/wireshark-tls-debugging-sharkfest19eu.pdf)
 presentation. Even more information can be found at the [Wireshark TLS](https://wiki.wireshark.org/TLS) page. 
 
@@ -99,3 +99,42 @@ packets contain TLS traffic. To hint it that it should be decoding the packets a
 right click on any of the packets to open the context menu, select "Decode As" and add 
 the server port, select "TLS" protocol in the "Current" column. If it's still not able 
 to decrypt try the same by saving the capture in a file and re-opening it.
+
+### Warnings during agent loading
+
+#### EnableDynamicAgentLoading
+
+Starting with Java 21, upon attaching the agent, the target process will print
+the following warning:
+
+> WARNING: A Java agent has been loaded dynamically
+> WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning
+> WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information
+> WARNING: Dynamic loading of agents will be disallowed by default in a future release
+
+The warning is informational and does not lead to broken functionality. To suppress
+the warning add `-XX:+EnableDynamicAgentLoading` to the startup options of the target process.
+
+If the target process has disabled dynamic agent loading by setting
+`-XX:-EnableDynamicAgentLoading` at startup, then attaching will fail with:
+> Failed to load agent library: Dynamic agent loading is not enabled. Use -XX:+EnableDynamicAgentLoading to launch target VM.
+
+More details can be found in [JEP 451](https://openjdk.org/jeps/451).
+
+<!-- 
+The warning has been introduced in:
+PEP: https://openjdk.org/jeps/451
+Ticket: https://bugs.openjdk.org/browse/JDK-8306275
+Commit: https://github.com/openjdk/jdk/commit/5bd2af26e66a863edc670229444b3282ba639563#diff-b15006727d01f54cc5d9a7d8ba6629f5445c136ddb94893d89ba359a6fe11e17R517
+-->
+
+#### Class path has been appended
+
+When the agent is loaded in the target process, the JVM will print the following warning:
+
+> OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader
+> classes because bootstrap classpath has been appended.
+
+This is expected behaviour since the agent modifies the bootstrap classpath during initialisation. 
+The warning exists since [Java 10](https://docs.oracle.com/javase/8/docs/technotes/guides/vm/class-data-sharing.html)
+when the classpath data sharing functionaity has been implemented.
