@@ -17,7 +17,10 @@ CWD="$( cd "$(dirname "$0")" ; pwd -P )"
 ROOT=$( cd "$CWD/../../.." && pwd )
 TEST_TMP="$ROOT/target/test/temp"
 SECRETS_VOLUME="$TEST_TMP/secrets"
-JAVA_VERSIONS="21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6"
+
+# Include all LTS releases plus the latest non-LTS if available.
+# To update: check https://hub.docker.com/_/eclipse-temurin/tags for available versions.
+JAVA_VERSIONS="25 21 17 11 8"
 
 $CWD/test_errors.sh $JAR_PATH
 
@@ -31,7 +34,7 @@ docker build -f $CWD/Dockerfile.utils $CWD -t ssl-secrets-utils
 # Passing "-deststoretype pkcs12" breaks Java 6
 cat <<EOF | docker run -i --rm --name ssl-secrets-keystore --network none \
   -v $SECRETS_VOLUME:/secrets \
-  openjdk:8 bash
+  eclipse-temurin:8 bash
     keytool -genkey -noprompt -alias tomcat -dname "CN=ssl-secrets-tomcat, OU=Unit, O=Company, L=Sofia, ST=Unknown, C=BG" \
       -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore
 EOF
