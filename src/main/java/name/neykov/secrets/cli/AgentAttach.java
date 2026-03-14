@@ -36,12 +36,13 @@ public class AgentAttach {
     private static void help(File jarFile, String message) {
         System.err.println(message + ".");
         System.out.println();
-        System.out.println("Usage: java -jar " + jarFile.getName() + " <pid> [<secrets_file>]");
+        System.out.println("Usage: java -jar " + jarFile.getName() + " <pid> [--private-key] [<secrets_file>]");
         System.out.println("       java -jar " + jarFile.getName() + " list");
         System.out.println();
         System.out.println("Options:");
         System.out.println("  * list - shows available Java processes to attach to");
         System.out.println("  * pid - the process ID to attach to (required)");
+        System.out.println("  * --log-private-key - log the private keys and certificate to <secrets_file> (for server connections)");
         System.out.println("  * secrets_file - file path to log the shared secrets to (optional);");
         System.out.println("                   if a relative path is used it's resolved against the target process working folder;");
         System.out.println("                   default value is '" + AgentMain.DEFAULT_SECRETS_FILE + "'");

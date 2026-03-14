@@ -35,7 +35,7 @@ cat <<EOF | docker run -i --rm --name ssl-secrets-keystore --network none \
   -v $SECRETS_VOLUME:/secrets \
   eclipse-temurin:8 bash
     keytool -genkey -noprompt -alias tomcat -dname "CN=ssl-secrets-tomcat, OU=Unit, O=Company, L=Sofia, ST=Unknown, C=BG" \
-      -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore
+      -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore -deststoretype pkcs12
 EOF
 
 ssl-secrets-utils()
@@ -44,6 +44,12 @@ ssl-secrets-utils()
         -v $SECRETS_VOLUME:/secrets \
         ssl-secrets-utils "$@"
 }
+
+# Extract the key & certificate from the Java keystore for comparison later
+ssl-secrets-utils openssl pkcs12 -legacy -nodes -password pass:password \
+  -in /secrets/keystore -out /secrets/secret.pem
+ssl-secrets-utils openssl storeutl -keys -out /secrets/privatekey /secrets/secret.pem
+ssl-secrets-utils openssl storeutl -certs -out /secrets/certs /secrets/secret.pem || true
 
 for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
 
@@ -61,7 +67,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     --build-arg JAVA_IMAGE_TAG=$JAVA_IMAGE_TAG
 
   if [ "$INJECT_TYPE" = "agent" ]; then
-    AGENT_OPT="-javaagent:/project/$JAR_PATH=/secrets/server.keys"
+    AGENT_OPT="-javaagent:/project/$JAR_PATH=log-private-key:/secrets/server.keys"
   fi
   # Start Tomcat
   docker run -d --name ssl-secrets-tomcat --network ssl-secrets -p 443:443 \
@@ -75,6 +81,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
   while ! docker run --network ssl-secrets --rm \
       -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
       ssl-secrets-tomcat java -cp /project/target/test-classes \
+      -Djavax.net.ssl.trustStoreType=pkcs12 \
       -Djavax.net.ssl.trustStore=/secrets/keystore \
       -Djavax.net.ssl.trustStorePassword=password \
       name.neykov.secrets.TestURLConnection https://ssl-secrets-tomcat/secret.txt 2> /dev/null;
@@ -84,7 +91,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
 
   if [ "$INJECT_TYPE" = "attach" ]; then
     docker exec ssl-secrets-tomcat java -jar /project/$JAR_PATH list
-    docker exec ssl-secrets-tomcat java -jar /project/$JAR_PATH 1 /secrets/server.keys
+    docker exec ssl-secrets-tomcat java -jar /project/$JAR_PATH 1 --log-private-key /secrets/server.keys
   fi
   docker logs ssl-secrets-tomcat
 
@@ -100,6 +107,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
       "=============================================\n\n"
 
     rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys \
+       $SECRETS_VOLUME/privatekey.found $SECRETS_VOLUME/certs.found \
        $SECRETS_VOLUME/secrets.pcap || true
 
     docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-tomcat \
@@ -111,6 +119,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     docker run --network ssl-secrets --rm \
       -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
       ssl-secrets-tomcat java -cp /project/target/test-classes \
+      -Djavax.net.ssl.trustStoreType=pkcs12 \
       -Djavax.net.ssl.trustStore=/secrets/keystore \
       -Djavax.net.ssl.trustStorePassword=password \
       -Dhttps.protocols=$PROTO \
@@ -136,6 +145,16 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
       -o "tls.keylog_file:/secrets/client.keys" \
       -nr /secrets/secrets.pcap -q -z follow,http,ascii,0 | \
       grep 'PLAIN TEXT'
+
+    ssl-secrets-utils cat /secrets/server.keys
+
+    # Extract the server's private key and certificates from the secrets log
+    ssl-secrets-utils openssl storeutl -keys -out /secrets/privatekey.found /secrets/server.keys || true
+    ssl-secrets-utils openssl storeutl -certs -out /secrets/certs.found /secrets/server.keys || true
+
+    # Compare the extracted secrets to the reference values
+    diff $SECRETS_VOLUME/privatekey $SECRETS_VOLUME/privatekey.found
+    diff $SECRETS_VOLUME/certs $SECRETS_VOLUME/certs.found
 
   done
 done

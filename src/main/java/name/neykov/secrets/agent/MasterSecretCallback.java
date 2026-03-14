@@ -31,8 +31,12 @@ public class MasterSecretCallback {
     private static final String NL = System.getProperty("line.separator");
     private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ");
     private static String secretsFileName;
+    private static boolean isLogPrivateKey;
     public static void setSecretsFileName(String secretsFileName) {
         MasterSecretCallback.secretsFileName = secretsFileName;
+    }
+    public static void setIsLogPrivateKey(boolean isLogPrivateKey) {
+        MasterSecretCallback.isLogPrivateKey = isLogPrivateKey;
     }
 
     @SuppressWarnings("unused")
@@ -104,37 +108,41 @@ public class MasterSecretCallback {
 
     @SuppressWarnings("unused")
     public static void onSetLocalPrivateKey(SSLSession sslSession, PrivateKey privateKey) {
-        try {
-            byte[] privateKeyData = privateKey.getEncoded();
-            String masterKey =
-                    Java6Compat.base64Encode(privateKeyData);
-            write(
-                "# LocalPrivateKey: Algorithm - " + privateKey.getAlgorithm() +
-                        ", Format: " + privateKey.getFormat(),
-                "-----BEGIN PRIVATE KEY-----",
-                masterKey,
-                "-----END PRIVATE KEY-----"
-            );
-        } catch (Exception e) {
-            log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
+        if (isLogPrivateKey) {
+            try {
+                byte[] privateKeyData = privateKey.getEncoded();
+                String masterKey =
+                        Java6Compat.base64Encode(privateKeyData);
+                write(
+                    "# LocalPrivateKey: Algorithm - " + privateKey.getAlgorithm() +
+                            ", Format: " + privateKey.getFormat(),
+                    "-----BEGIN PRIVATE KEY-----",
+                    masterKey,
+                    "-----END PRIVATE KEY-----"
+                );
+            } catch (Exception e) {
+                log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
+            }
         }
     }
 
     @SuppressWarnings("unused")
     public static void onSetLocalCertificates(SSLSession sslSession, X509Certificate[] certs) {
-        try {
-            for (X509Certificate cert : certs) {
-                byte[] certData = cert.getEncoded();
-                String encodedCertText =
-                        Java6Compat.base64Encode(certData);
-                write(
-                    "-----BEGIN CERTIFICATE-----",
-                    encodedCertText,
-                    "-----END CERTIFICATE-----"
-                );
+        if (isLogPrivateKey) {
+            try {
+                for (X509Certificate cert : certs) {
+                    byte[] certData = cert.getEncoded();
+                    String encodedCertText =
+                            Java6Compat.base64Encode(certData);
+                    write(
+                        "-----BEGIN CERTIFICATE-----",
+                        encodedCertText,
+                        "-----END CERTIFICATE-----"
+                    );
+                }
+            } catch (Exception e) {
+                log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
             }
-        } catch (Exception e) {
-            log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
     }
 

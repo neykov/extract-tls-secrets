@@ -2,4 +2,4 @@ FROM alpine:latest
 
 VOLUME ["/dump"]
 
-RUN apk --no-cache add tcpdump tshark
+RUN apk --no-cache add tcpdump tshark openssl

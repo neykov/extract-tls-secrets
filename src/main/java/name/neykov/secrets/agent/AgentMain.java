@@ -135,6 +135,7 @@ public class AgentMain {
         AgentArguments args = AgentArguments.parseArguments(agentArgs);
 
         // MasterSecretCallback is loaded in boot class loader
+        MasterSecretCallback.setIsLogPrivateKey(args.isLogPrivateKey);
         String canonicalSecretsPath = getCanonicalSecretsPath(args.secretsPath);
         MasterSecretCallback.setSecretsFileName(canonicalSecretsPath);
 
