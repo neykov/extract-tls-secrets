@@ -80,12 +80,6 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
   fi
   docker logs ssl-secrets-tomcat
 
-  # Start tcpdump listening on the tomcat port
-  docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-tomcat \
-    -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
-    tcpdump 'port 443' -Uw /secrets/secrets.pcap
-
-
   for PROTO in "TLSv1.3" "TLSv1.1"; do
 
     case "$PROTO-$JAVA_IMAGE_TAG" in
@@ -97,9 +91,14 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
       "   Java $JAVA_IMAGE_TAG - $PROTO\n" \
       "=============================================\n\n"
 
-    rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys || true
+    rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys $SECRETS_VOLUME/secrets.pcap || true
 
-    # Run a test request
+    docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-tomcat \
+      -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
+      tcpdump 'port 443' -Uw /secrets/secrets.pcap
+    # Wait until tcpdump is actively listening before running the test request.
+    while ! docker logs ssl-secrets-tcpdump 2>&1 | grep -qs "listening on"; do sleep 0.1; done
+
     docker run --network ssl-secrets --rm \
       -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
       ssl-secrets-tomcat java -cp /project/target/test-classes \
@@ -109,24 +108,22 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
       -javaagent:/project/$JAR_PATH=/secrets/client.keys \
       name.neykov.secrets.TestURLConnection https://ssl-secrets-tomcat/secret.txt
 
+    # Sometimes there wont be any captured packets. Wait for a flush timeout.
+    sleep 1
+    docker stop ssl-secrets-tcpdump || true
+
     # Show captured keys
     docker run --rm --network none \
       -v $SECRETS_VOLUME:/secrets \
       ssl-secrets-utils \
       cat /secrets/server.keys /secrets/client.keys
 
-    LAST_STREAM_ID=$(docker run --rm --network none \
-      -v $SECRETS_VOLUME:/secrets \
-      ssl-secrets-utils tshark \
-      -nr /secrets/secrets.pcap \
-      -T fields -e tcp.stream | sort -n | tail -1 )
-
     # Check we can decrypt the capture using the server keys
     docker run --rm --network none \
       -v $SECRETS_VOLUME:/secrets \
       ssl-secrets-utils tshark \
       -o "tls.keylog_file:/secrets/server.keys" \
-      -nr /secrets/secrets.pcap -q -z follow,http,ascii,$LAST_STREAM_ID | \
+      -nr /secrets/secrets.pcap -q -z follow,http,ascii,0 | \
       grep 'PLAIN TEXT'
 
     # Check we can decrypt the capture using the client keys
@@ -134,7 +131,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
       -v $SECRETS_VOLUME:/secrets \
       ssl-secrets-utils tshark \
       -o "tls.keylog_file:/secrets/client.keys" \
-      -nr /secrets/secrets.pcap -q -z follow,http,ascii,$LAST_STREAM_ID | \
+      -nr /secrets/secrets.pcap -q -z follow,http,ascii,0 | \
       grep 'PLAIN TEXT'
 
   done
