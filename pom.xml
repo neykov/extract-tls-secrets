@@ -48,6 +48,30 @@
       <artifactId>javassist</artifactId>
       <version>3.23.2-GA</version>
     </dependency>
+    <!--
+      BouncyCastle JSSE test dependencies — version constraints:
+
+      Use jdk15to18 (not jdk15on, which was renamed in 1.71, or jdk18on which requires Java 8+).
+
+      - <= 1.70: Java 6 server broken — ProvX509KeyManagerSimple$Match.compareTo() calls
+                 Boolean.compare()/Integer.compare(), both Java 7+ only. Causes NoSuchMethodError
+                 mid-handshake. Fixed in 1.71. (bcgit/bc-java#1130)
+      - 1.71–1.73: Works on Java 6 for both client and server.
+      - >= 1.74: Java 6 broken again — GCM nonce regression for TLS 1.2 GCM cipher suites
+                 ("cannot reuse nonce for GCM encryption"). (bcgit/bc-java#2100)
+    -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bctls-jdk15to18</artifactId>
+      <version>1.73</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk15to18</artifactId>
+      <version>1.73</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -85,6 +109,41 @@
                   <shadedPattern>name.neykov.secrets.internal.javassist</shadedPattern>
                 </relocation>
               </relocations>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-clean-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <execution>
+            <id>clean-test-lib</id>
+            <phase>initialize</phase>
+            <goals><goal>clean</goal></goals>
+            <configuration>
+              <excludeDefaultDirectories>true</excludeDefaultDirectories>
+              <filesets>
+                <fileset>
+                  <directory>${project.build.directory}/test-lib</directory>
+                </fileset>
+              </filesets>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.1.2</version>
+        <executions>
+          <execution>
+            <id>copy-test-deps</id>
+            <phase>test-compile</phase>
+            <goals><goal>copy-dependencies</goal></goals>
+            <configuration>
+              <includeGroupIds>org.bouncycastle</includeGroupIds>
+              <outputDirectory>${project.build.directory}/test-lib</outputDirectory>
             </configuration>
           </execution>
         </executions>

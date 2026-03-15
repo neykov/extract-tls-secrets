@@ -99,7 +99,7 @@ public class MasterSecretCallback {
             SSLSession sslSession = (SSLSession) get(context, "handshakeSession");
             String connectionDetails = getConnectionDetails(sslSession);
             Object clientRandom = get(context, "clientHelloRandom");
-            String clientRandomBytes = bytesToHex((byte[]) get(clientRandom, "randomBytes"));
+            String clientRandomBytes = bytesToHex((byte[])get(clientRandom, "randomBytes"));
             write(connectionDetails, secretName + " " + clientRandomBytes + " " + bytesToHex(key.getEncoded()));
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving client random secret from " + context, e);
@@ -146,6 +146,63 @@ public class MasterSecretCallback {
         }
     }
 
+    @SuppressWarnings("unused")
+    public static void onBcMasterSecret(Object tlsContext) {
+        try {
+            Object secParams = get(tlsContext, "securityParametersHandshake");
+            String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
+            Object masterSecret = get(secParams, "masterSecret");
+            String masterKey = bytesToHex((byte[])get(masterSecret, "data"));
+            write(
+                getBcConnectionDetails(secParams),
+                "CLIENT_RANDOM " + clientRandom + " " + masterKey
+            );
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.2 master secret", e);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public static void onBcTls13HandshakeSecrets(Object tlsContext) {
+        try {
+            Object secParams = get(tlsContext, "securityParametersHandshake");
+            String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
+            Object trafficSecretClient = get(secParams, "trafficSecretClient");
+            Object trafficSecretServer = get(secParams, "trafficSecretServer");
+            String clientHandshakeTrafficSecret = bytesToHex((byte[])get(trafficSecretClient, "data"));
+            String serverHandshakeTrafficSecret = bytesToHex((byte[])get(trafficSecretServer, "data"));
+            write(
+                getBcConnectionDetails(secParams),
+                "CLIENT_HANDSHAKE_TRAFFIC_SECRET " + clientRandom + " " + clientHandshakeTrafficSecret,
+                "SERVER_HANDSHAKE_TRAFFIC_SECRET " + clientRandom + " " + serverHandshakeTrafficSecret
+            );
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.3 handshake secrets", e);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public static void onBcTls13ApplicationSecrets(Object tlsContext) {
+        try {
+            Object secParams = get(tlsContext, "securityParametersHandshake");
+            String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
+            Object trafficSecretClient = get(secParams, "trafficSecretClient");
+            Object trafficSecretServer = get(secParams, "trafficSecretServer");
+            Object exporterMasterSecret = get(secParams, "exporterMasterSecret");
+            String clientAppTrafficSecret = bytesToHex((byte[])get(trafficSecretClient, "data"));
+            String serverAppTrafficSecret = bytesToHex((byte[])get(trafficSecretServer, "data"));
+            String exporterSecret = bytesToHex((byte[])get(exporterMasterSecret, "data"));
+            write(
+                getBcConnectionDetails(secParams),
+                "CLIENT_TRAFFIC_SECRET_0 " + clientRandom + " " + clientAppTrafficSecret,
+                "SERVER_TRAFFIC_SECRET_0 " + clientRandom + " " + serverAppTrafficSecret,
+                "EXPORTER_SECRET " + clientRandom + " " + exporterSecret
+            );
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.3 application secrets", e);
+        }
+    }
+
     private static String getConnectionDetails(SSLSession sslSession) {
         String dateNow;
         synchronized (DATE_FMT) {
@@ -162,6 +219,18 @@ public class MasterSecretCallback {
         }
         return  "# " + dateNow + " " + peerHostSection +
                         "CipherSuite: " + cipherSuite + ", Protocol: " + protocol;
+    }
+
+    private static String getBcConnectionDetails(Object secParams) throws IllegalAccessException, NoSuchFieldException {
+        String dateNow;
+        synchronized (DATE_FMT) {
+            dateNow = DATE_FMT.format(new Date());
+        }
+        Object negotiatedVersion = get(secParams, "negotiatedVersion");
+        String protocol = negotiatedVersion != null ? negotiatedVersion.toString() : "unknown";
+        int cipherSuiteCode = ((Integer)get(secParams, "cipherSuite")).intValue();
+        String cipherSuite = String.format("0x%04X", cipherSuiteCode);
+        return "# " + dateNow + " BCJSSE CipherSuite: " + cipherSuite + ", Protocol: " + protocol;
     }
 
     private static synchronized void write(String... secrets) throws IOException {

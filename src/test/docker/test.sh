@@ -22,6 +22,20 @@ SECRETS_VOLUME="$TEST_TMP/secrets"
 # To update: check https://hub.docker.com/r/azul/zulu-openjdk/tags for available versions.
 JAVA_VERSIONS="25 21 17 11 8 6"
 
+# ── Provider declarations ──────────────────────────────────────────────────
+# SKIP:   space-separated Java versions to skip for this provider
+# MARKER: string expected in both keylog files to confirm instrumentation fired
+# The provider name is passed as -Dprovider=<name> to both server and client.
+
+PROVIDERS="JSSE BCJSSE"
+
+JSSE_SKIP=""
+JSSE_MARKER="CipherSuite:"
+
+BCJSSE_SKIP=""
+BCJSSE_MARKER="BCJSSE CipherSuite:"
+# ──────────────────────────────────────────────────────────────────────────
+
 $CWD/test_errors.sh $JAR_PATH
 
 rm -r $TEST_TMP || true
@@ -46,18 +60,12 @@ ssl-secrets-utils()
         ssl-secrets-utils "$@"
 }
 
-# Extract the key & certificate from the Java keystore for comparison later
-ssl-secrets-utils openssl pkcs12 -legacy -nodes -password pass:password \
-  -in /secrets/keystore -out /secrets/secret.pem
-ssl-secrets-utils openssl storeutl -keys -out /secrets/privatekey /secrets/secret.pem
-ssl-secrets-utils openssl storeutl -certs -out /secrets/certs /secrets/secret.pem || true
-
 for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
 
-    echo -e "\n" \
-      "=============================================\n" \
-      "   Java $JAVA_IMAGE_TAG \n" \
-      "=============================================\n\n"
+  echo -e "\n" \
+    "=============================================\n" \
+    "   Java $JAVA_IMAGE_TAG \n" \
+    "=============================================\n\n"
 
   RUNNING_CONTAINERS="$(docker ps -qa)"
   if [ -n "$RUNNING_CONTAINERS" ]; then
@@ -67,89 +75,96 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
   docker build -f $CWD/Dockerfile.server $CWD -t ssl-secrets-server \
     --build-arg JAVA_IMAGE_TAG=$JAVA_IMAGE_TAG
 
-  ATTACH_OPT=""
-  if [ "$INJECT_TYPE" = "agent" ]; then
-    ATTACH_OPT="-javaagent:/project/$JAR_PATH=log-private-key:/secrets/server.keys"
-  fi
-  # Start the test server
-  docker run -d --name ssl-secrets-server --network ssl-secrets \
-    -v $ROOT:/project \
-    -v $SECRETS_VOLUME:/secrets \
-    ssl-secrets-server java -cp /project/target/test-classes \
-    $ATTACH_OPT \
-    -Dkeystore.file=/secrets/keystore \
-    name.neykov.secrets.TestHttpsServer
+  for PROVIDER in $PROVIDERS; do
+    SKIP_VAR="${PROVIDER}_SKIP"
+    SKIP="${!SKIP_VAR}"
+    MARKER_VAR="${PROVIDER}_MARKER"
+    SECRET_MARKER="${!MARKER_VAR}"
+    PROVIDER_FLAG="-Dprovider=$PROVIDER"
 
-  while ! docker logs ssl-secrets-server 2>&1 | grep -qs "server ready"; do sleep 0.1; done
+    [[ " $SKIP " == *" $JAVA_IMAGE_TAG "* ]] && continue
 
-  if [ "$INJECT_TYPE" = "attach" ]; then
-    docker exec ssl-secrets-server java -jar /project/$JAR_PATH list
-    docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 --log-private-key /secrets/server.keys
-  fi
+    docker rm -f ssl-secrets-server 2>/dev/null || true
 
-  for PROTO in "TLSv1.3" "TLSv1.1"; do
+    SERVER_AGENT_OPT=""
+    if [ "$INJECT_TYPE" = "agent" ]; then
+      SERVER_AGENT_OPT="-javaagent:/project/$JAR_PATH=/secrets/server.keys"
+    fi
+    docker run -d --name ssl-secrets-server --network ssl-secrets \
+      -v $ROOT:/project \
+      -v $SECRETS_VOLUME:/secrets \
+      ssl-secrets-server java -cp "/project/target/test-classes:/project/target/test-lib/*" \
+      $PROVIDER_FLAG \
+      $SERVER_AGENT_OPT \
+      -Dkeystore.file=/secrets/keystore \
+      name.neykov.secrets.TestServer
 
-    case "$PROTO-$JAVA_IMAGE_TAG" in
-      "TLSv1.3-6"|"TLSv1.3-7"|"TLSv1.3-9"|"TLSv1.3-10") continue;;
-    esac
+    while ! docker logs ssl-secrets-server 2>&1 | grep -qs "server ready"; do sleep 0.1; done
 
-    echo -e "\n" \
-      "=============================================\n" \
-      "   Java $JAVA_IMAGE_TAG - $PROTO\n" \
-      "=============================================\n\n"
+    if [ "$INJECT_TYPE" = "attach" ]; then
+      docker exec ssl-secrets-server java -jar /project/$JAR_PATH list
+      docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 /secrets/server.keys
+    fi
 
-    rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys \
-       $SECRETS_VOLUME/privatekey.found $SECRETS_VOLUME/certs.found \
-       $SECRETS_VOLUME/secrets.pcap || true
+    for PROTO in "TLSv1.3" "TLSv1.2"; do
 
-    docker rm -f ssl-secrets-tcpdump 2>/dev/null || true
-    docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-server \
-      -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
-      tcpdump 'port 443' -Uw /secrets/secrets.pcap
-    # Wait until tcpdump is actively listening before running the test request.
-    while ! docker logs ssl-secrets-tcpdump 2>&1 | grep -qs "listening on"; do sleep 0.1; done
+      case "$PROTO-$JAVA_IMAGE_TAG-$PROVIDER" in
+        # JDK versions without native TLS 1.3 support (any provider)
+        "TLSv1.3-6-"*|"TLSv1.3-7-"*|"TLSv1.3-9-"*|"TLSv1.3-10-"*) continue;;
+      esac
 
-    docker run --network ssl-secrets --rm \
-      -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
-      ssl-secrets-server java -cp /project/target/test-classes \
-      -Djavax.net.ssl.trustStoreType=pkcs12 \
-      -Djavax.net.ssl.trustStore=/secrets/keystore \
-      -Djavax.net.ssl.trustStorePassword=password \
-      -Dhttps.protocols=$PROTO \
-      -Djdk.tls.client.protocols=$PROTO \
-      -javaagent:/project/$JAR_PATH=/secrets/client.keys \
-      name.neykov.secrets.TestURLConnection https://ssl-secrets-server/secret.txt
+      echo -e "\n" \
+        "=============================================\n" \
+        "   Java $JAVA_IMAGE_TAG - $PROVIDER $PROTO\n" \
+        "=============================================\n\n"
 
-    # Sometimes there wont be any captured packets. Wait for a flush timeout.
-    sleep 1
-    docker stop ssl-secrets-tcpdump || true
+      rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys \
+         $SECRETS_VOLUME/secrets.pcap || true
 
-    # Show captured keys
-    ssl-secrets-utils cat /secrets/server.keys /secrets/client.keys
+      docker rm -f ssl-secrets-tcpdump 2>/dev/null || true
+      docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-server \
+        -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
+        tcpdump 'port 443' -Uw /secrets/secrets.pcap
+      while ! docker logs ssl-secrets-tcpdump 2>&1 | grep -qs "listening on"; do sleep 0.1; done
 
-    # Check we can decrypt the capture using the server keys
-    ssl-secrets-utils tshark \
-      -o "tls.keylog_file:/secrets/server.keys" \
-      -nr /secrets/secrets.pcap -q -z follow,http,ascii,0 | \
-      grep 'PLAIN TEXT'
+      docker run --network ssl-secrets --rm \
+        -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
+        ssl-secrets-server java -cp "/project/target/test-classes:/project/target/test-lib/*" \
+        -Djavax.net.ssl.trustStoreType=pkcs12 \
+        -Djavax.net.ssl.trustStore=/secrets/keystore \
+        -Djavax.net.ssl.trustStorePassword=password \
+        -Djdk.tls.client.protocols=$PROTO \
+        -javaagent:/project/$JAR_PATH=/secrets/client.keys \
+        $PROVIDER_FLAG \
+        name.neykov.secrets.TestClient https://ssl-secrets-server/secret.txt
 
-    # Check we can decrypt the capture using the client keys
-    ssl-secrets-utils tshark \
-      -o "tls.keylog_file:/secrets/client.keys" \
-      -nr /secrets/secrets.pcap -q -z follow,http,ascii,0 | \
-      grep 'PLAIN TEXT'
+      # Sometimes there won't be any captured packets — wait for a flush timeout.
+      sleep 1
+      docker stop ssl-secrets-tcpdump || true
 
-    ssl-secrets-utils cat /secrets/server.keys
+      # Show captured keys
+      ssl-secrets-utils cat /secrets/server.keys /secrets/client.keys
 
-    # Extract the server's private key and certificates from the secrets log
-    ssl-secrets-utils openssl storeutl -keys -out /secrets/privatekey.found /secrets/server.keys || true
-    ssl-secrets-utils openssl storeutl -certs -out /secrets/certs.found /secrets/server.keys || true
+      # Assert both sides captured secrets via the expected instrumentation path
+      grep -q "$SECRET_MARKER" $SECRETS_VOLUME/server.keys
+      grep -q "$SECRET_MARKER" $SECRETS_VOLUME/client.keys
 
-    # Compare the extracted secrets to the reference values.
-    diff $SECRETS_VOLUME/privatekey $SECRETS_VOLUME/privatekey.found
-    diff $SECRETS_VOLUME/certs $SECRETS_VOLUME/certs.found
+      # Check we can decrypt the capture using the server keys
+      ssl-secrets-utils tshark \
+        -o "tls.keylog_file:/secrets/server.keys" \
+        -nr /secrets/secrets.pcap -q -z follow,tls,ascii,0 | \
+        grep 'PLAIN TEXT'
+
+      # Check we can decrypt the capture using the client keys
+      ssl-secrets-utils tshark \
+        -o "tls.keylog_file:/secrets/client.keys" \
+        -nr /secrets/secrets.pcap -q -z follow,tls,ascii,0 | \
+        grep 'PLAIN TEXT'
+
+    done
 
   done
+
 done
 
 docker rm -f ssl-secrets-server

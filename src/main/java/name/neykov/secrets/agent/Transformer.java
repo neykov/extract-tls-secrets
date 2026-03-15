@@ -6,6 +6,7 @@ import java.security.ProtectionDomain;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -18,6 +19,28 @@ import javassist.NotFoundException;
 
 public class Transformer implements ClassFileTransformer {
     private static final Logger log = Logger.getLogger(Transformer.class.getName());
+    private static final AtomicBoolean bcjsseLogged = new AtomicBoolean(false);
+
+    private static void logBcjsseDetected() {
+        if (bcjsseLogged.compareAndSet(false, true)) {
+            String version = getBcVersion();
+            log.info("BouncyCastle JSSE (BCJSSE) detected and instrumented" +
+                    (version != null ? ", version " + version : "") + ".");
+        }
+    }
+
+    private static String getBcVersion() {
+        try {
+            ClassLoader cl = Thread.currentThread().getContextClassLoader();
+            if (cl == null) cl = ClassLoader.getSystemClassLoader();
+            Package pkg = Class.forName(
+                    "org.bouncycastle.jce.provider.BouncyCastleProvider", false, cl)
+                    .getPackage();
+            return pkg != null ? pkg.getImplementationVersion() : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
 
     private static abstract class InjectCallback {
         private final Set<String> handledClasses;
@@ -96,10 +119,41 @@ public class Transformer implements ClassFileTransformer {
 
     }
 
+    private static class BcTlsProtocolInjectCallback extends InjectCallback {
+        public BcTlsProtocolInjectCallback() {
+            super("org.bouncycastle.tls.TlsProtocol");
+        }
+
+        @Override
+        protected void instrumentClass(CtClass instrumentedClass) throws CannotCompileException, NotFoundException {
+            CtMethod method = instrumentedClass.getDeclaredMethod("establishMasterSecret");
+            method.insertAfter(MasterSecretCallback.class.getName() + ".onBcMasterSecret($1);");
+            logBcjsseDetected();
+        }
+    }
+
+    private static class BcTlsUtilsInjectCallback extends InjectCallback {
+        public BcTlsUtilsInjectCallback() {
+            super("org.bouncycastle.tls.TlsUtils");
+        }
+
+        @Override
+        protected void instrumentClass(CtClass instrumentedClass) throws CannotCompileException, NotFoundException {
+            CtMethod handshakePhase = instrumentedClass.getDeclaredMethod("establish13PhaseHandshake");
+            handshakePhase.insertAfter(MasterSecretCallback.class.getName() + ".onBcTls13HandshakeSecrets($1);");
+
+            CtMethod appPhase = instrumentedClass.getDeclaredMethod("establish13PhaseApplication");
+            appPhase.insertAfter(MasterSecretCallback.class.getName() + ".onBcTls13ApplicationSecrets($1);");
+            logBcjsseDetected();
+        }
+    }
+
     private static final InjectCallback[] TRANSFORMERS = new InjectCallback[] {
             new SessionInjectCallback(),
             new HandshakerInjectCallback(),
-            new SSLTrafficKeyDerivation()
+            new SSLTrafficKeyDerivation(),
+            new BcTlsProtocolInjectCallback(),
+            new BcTlsUtilsInjectCallback()
     };
 
     @Override
