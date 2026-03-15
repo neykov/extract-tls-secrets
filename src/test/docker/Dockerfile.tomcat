@@ -15,13 +15,18 @@ RUN set -x && \
 	mkdir -p /apache-tomcat/root && \
 	echo "PLAIN TEXT" > /apache-tomcat/root/secret.txt
 
-FROM eclipse-temurin:${JAVA_IMAGE_TAG}
+FROM azul/zulu-openjdk:${JAVA_IMAGE_TAG}
 ARG JAVA_IMAGE_TAG
+# azul/zulu-openjdk:6 does not set JAVA_HOME; fall back to the known path for that image
+ENV JAVA_HOME=${JAVA_HOME:-/usr/lib/jvm/zulu-6-amd64}
 
 COPY --from=0 /apache-tomcat /apache-tomcat
-# Enable TLSv1.1
-RUN ( `# Java 9+` && [ -f "$JAVA_HOME/conf/security/java.security" ] && echo "jdk.tls.disabledAlgorithms=" >> "$JAVA_HOME/conf/security/java.security" ) || \
-    ( `# Java 8` && [ -f "$JAVA_HOME/jre/lib/security/java.security" ] && echo "jdk.tls.disabledAlgorithms=" >> "$JAVA_HOME/jre/lib/security/java.security" ) || \
-    ( echo "Unable to locate java.security" && false )
+# Enable TLSv1.1: clear both disabled and legacy algorithm lists
+RUN JAVA_ROOT="${JAVA_HOME:-/usr/lib/jvm}" && \
+    SECURITY_FILE=$(find -L "$JAVA_ROOT" -name java.security 2>/dev/null | head -1) && \
+    [ -n "$SECURITY_FILE" ] && \
+    echo "jdk.tls.disabledAlgorithms=" >> "$SECURITY_FILE" && \
+    echo "jdk.tls.legacyAlgorithms=" >> "$SECURITY_FILE" || \
+    ( echo "Unable to locate java.security under $JAVA_ROOT" && false )
 
 VOLUME /secrets /project

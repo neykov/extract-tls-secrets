@@ -19,8 +19,8 @@ TEST_TMP="$ROOT/target/test/temp"
 SECRETS_VOLUME="$TEST_TMP/secrets"
 
 # Include all LTS releases plus the latest non-LTS if available.
-# To update: check https://hub.docker.com/_/eclipse-temurin/tags for available versions.
-JAVA_VERSIONS="25 21 17 11 8"
+# To update: check https://hub.docker.com/r/azul/zulu-openjdk/tags for available versions.
+JAVA_VERSIONS="25 21 17 11 8 6"
 
 $CWD/test_errors.sh $JAR_PATH
 
@@ -33,7 +33,7 @@ docker build -f $CWD/Dockerfile.utils $CWD -t ssl-secrets-utils
 
 cat <<EOF | docker run -i --rm --name ssl-secrets-keystore --network none \
   -v $SECRETS_VOLUME:/secrets \
-  eclipse-temurin:8 bash
+  azul/zulu-openjdk:8 bash
     keytool -genkey -noprompt -alias tomcat -dname "CN=ssl-secrets-tomcat, OU=Unit, O=Company, L=Sofia, ST=Unknown, C=BG" \
       -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore -deststoretype pkcs12
 EOF
@@ -110,6 +110,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
        $SECRETS_VOLUME/privatekey.found $SECRETS_VOLUME/certs.found \
        $SECRETS_VOLUME/secrets.pcap || true
 
+    docker rm -f ssl-secrets-tcpdump 2>/dev/null || true
     docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-tomcat \
       -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
       tcpdump 'port 443' -Uw /secrets/secrets.pcap
