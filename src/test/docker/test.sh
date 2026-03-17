@@ -34,8 +34,9 @@ docker build -f $CWD/Dockerfile.utils $CWD -t ssl-secrets-utils
 cat <<EOF | docker run -i --rm --name ssl-secrets-keystore --network none \
   -v $SECRETS_VOLUME:/secrets \
   azul/zulu-openjdk:8 bash
-    keytool -genkey -noprompt -alias tomcat -dname "CN=ssl-secrets-tomcat, OU=Unit, O=Company, L=Sofia, ST=Unknown, C=BG" \
-      -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore -deststoretype pkcs12
+    keytool -genkey -noprompt -alias server -dname "CN=ssl-secrets-server, OU=Unit, O=Company, L=Sofia, ST=Unknown, C=BG" \
+      -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore -deststoretype pkcs12 \
+      -ext SAN=dns:ssl-secrets-server
 EOF
 
 ssl-secrets-utils()
@@ -63,37 +64,28 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     docker rm -f $RUNNING_CONTAINERS || true
   fi
 
-  docker build -f $CWD/Dockerfile.tomcat $CWD -t ssl-secrets-tomcat \
+  docker build -f $CWD/Dockerfile.server $CWD -t ssl-secrets-server \
     --build-arg JAVA_IMAGE_TAG=$JAVA_IMAGE_TAG
 
+  ATTACH_OPT=""
   if [ "$INJECT_TYPE" = "agent" ]; then
-    AGENT_OPT="-javaagent:/project/$JAR_PATH=log-private-key:/secrets/server.keys"
+    ATTACH_OPT="-javaagent:/project/$JAR_PATH=log-private-key:/secrets/server.keys"
   fi
-  # Start Tomcat
-  docker run -d --name ssl-secrets-tomcat --network ssl-secrets -p 443:443 \
+  # Start the test server
+  docker run -d --name ssl-secrets-server --network ssl-secrets \
     -v $ROOT:/project \
-    -v $CWD/server.xml:/apache-tomcat/conf/server.xml \
     -v $SECRETS_VOLUME:/secrets \
-    -e CATALINA_OPTS="$AGENT_OPT -Dkeystore.file=/secrets/keystore " \
-    ssl-secrets-tomcat /apache-tomcat/bin/catalina.sh run
+    ssl-secrets-server java -cp /project/target/test-classes \
+    $ATTACH_OPT \
+    -Dkeystore.file=/secrets/keystore \
+    name.neykov.secrets.TestHttpsServer
 
-  # Wait for tomcat to complete starting up
-  while ! docker run --network ssl-secrets --rm \
-      -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
-      ssl-secrets-tomcat java -cp /project/target/test-classes \
-      -Djavax.net.ssl.trustStoreType=pkcs12 \
-      -Djavax.net.ssl.trustStore=/secrets/keystore \
-      -Djavax.net.ssl.trustStorePassword=password \
-      name.neykov.secrets.TestURLConnection https://ssl-secrets-tomcat/secret.txt 2> /dev/null;
-  do
-    sleep 1;
-  done
+  while ! docker logs ssl-secrets-server 2>&1 | grep -qs "server ready"; do sleep 0.1; done
 
   if [ "$INJECT_TYPE" = "attach" ]; then
-    docker exec ssl-secrets-tomcat java -jar /project/$JAR_PATH list
-    docker exec ssl-secrets-tomcat java -jar /project/$JAR_PATH 1 --log-private-key /secrets/server.keys
+    docker exec ssl-secrets-server java -jar /project/$JAR_PATH list
+    docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 --log-private-key /secrets/server.keys
   fi
-  docker logs ssl-secrets-tomcat
 
   for PROTO in "TLSv1.3" "TLSv1.1"; do
 
@@ -111,7 +103,7 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
        $SECRETS_VOLUME/secrets.pcap || true
 
     docker rm -f ssl-secrets-tcpdump 2>/dev/null || true
-    docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-tomcat \
+    docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-server \
       -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
       tcpdump 'port 443' -Uw /secrets/secrets.pcap
     # Wait until tcpdump is actively listening before running the test request.
@@ -119,14 +111,14 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
 
     docker run --network ssl-secrets --rm \
       -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
-      ssl-secrets-tomcat java -cp /project/target/test-classes \
+      ssl-secrets-server java -cp /project/target/test-classes \
       -Djavax.net.ssl.trustStoreType=pkcs12 \
       -Djavax.net.ssl.trustStore=/secrets/keystore \
       -Djavax.net.ssl.trustStorePassword=password \
       -Dhttps.protocols=$PROTO \
       -Djdk.tls.client.protocols=$PROTO \
       -javaagent:/project/$JAR_PATH=/secrets/client.keys \
-      name.neykov.secrets.TestURLConnection https://ssl-secrets-tomcat/secret.txt
+      name.neykov.secrets.TestURLConnection https://ssl-secrets-server/secret.txt
 
     # Sometimes there wont be any captured packets. Wait for a flush timeout.
     sleep 1
@@ -153,11 +145,11 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     ssl-secrets-utils openssl storeutl -keys -out /secrets/privatekey.found /secrets/server.keys || true
     ssl-secrets-utils openssl storeutl -certs -out /secrets/certs.found /secrets/server.keys || true
 
-    # Compare the extracted secrets to the reference values
+    # Compare the extracted secrets to the reference values.
     diff $SECRETS_VOLUME/privatekey $SECRETS_VOLUME/privatekey.found
     diff $SECRETS_VOLUME/certs $SECRETS_VOLUME/certs.found
 
   done
 done
 
-docker rm -f ssl-secrets-tomcat
+docker rm -f ssl-secrets-server
