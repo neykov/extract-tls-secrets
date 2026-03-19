@@ -6,7 +6,8 @@ import org.bouncycastle.jsse.provider.BouncyCastleJsseProvider;
 
 class BcjsseSetup {
     static void register() {
-        Security.insertProviderAt(new BouncyCastleProvider(), 1);
-        Security.insertProviderAt(new BouncyCastleJsseProvider(), 2);
+        BouncyCastleProvider bc = new BouncyCastleProvider();
+        Security.insertProviderAt(bc, 1);
+        Security.insertProviderAt(new BouncyCastleJsseProvider(bc), 2);
     }
 }

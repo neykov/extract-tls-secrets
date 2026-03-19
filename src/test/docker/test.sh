@@ -36,6 +36,182 @@ BCJSSE_SKIP=""
 BCJSSE_MARKER="BCJSSE CipherSuite:"
 # ──────────────────────────────────────────────────────────────────────────
 
+# ── BC compat matrix ───────────────────────────────────────────────────────
+# Tests BCJSSE instrumentation across key BC versions, run on Java 8 only.
+# "default" means the version compiled by Maven (pinned in pom.xml, currently 1.73).
+#
+# Versions chosen:
+#   1.57 — earliest bctls release; TLS 1.0-1.2 only (no establish13Phase* methods).
+#          Uses "securityParameters" field (renamed to "securityParametersHandshake"
+#          in 1.61) and has no "negotiatedVersion" field; both handled via fallback.
+#   1.66 — first version with TLS 1.3 support (establish13Phase* methods added to TlsUtils;
+#          exporterMasterSecret added to SecurityParameters)
+#   latest — resolved dynamically from Maven Central at test time
+#
+# Maven artifact classifier:
+#   BC 1.57–1.69: bctls-jdk15on / bcprov-jdk15on
+#   BC 1.70+:     bctls-jdk15to18 / bcprov-jdk15to18
+#
+# Skip rule within this matrix:
+#   TLSv1.3 + BC < 1.70: TLSv1.3 is not reliably exposed via setEnabledProtocols()
+#   in BCJSSE < 1.70 (throws IllegalArgumentException in some versions, ignored in
+#   others); BC 1.70 was the major BCJSSE refactoring that wired TLS 1.3 properly.
+
+BC_COMPAT_JAVA=8
+# ──────────────────────────────────────────────────────────────────────────
+
+# Assert that both secrets files contain keylog lines appropriate for protocol $1,
+# and do NOT contain keylog lines for the other protocol.
+# TLS 1.3 produces CLIENT_HANDSHAKE_TRAFFIC_SECRET; TLS 1.0-1.2 produces CLIENT_RANDOM.
+# Note: "! cmd || return 1" is used for negative checks because bash set -e does not
+# propagate through "!" negation — the explicit "|| return 1" ensures failure is raised.
+assert_protocol_keys() {
+  local proto="$1"
+  if [ "$proto" = "TLSv1.3" ]; then
+    grep -q "^CLIENT_HANDSHAKE_TRAFFIC_SECRET " $SECRETS_VOLUME/server.keys
+    grep -q "^CLIENT_HANDSHAKE_TRAFFIC_SECRET " $SECRETS_VOLUME/client.keys
+    ! grep -q "^CLIENT_RANDOM " $SECRETS_VOLUME/server.keys || return 1
+    ! grep -q "^CLIENT_RANDOM " $SECRETS_VOLUME/client.keys || return 1
+  else
+    grep -q "^CLIENT_RANDOM " $SECRETS_VOLUME/server.keys
+    grep -q "^CLIENT_RANDOM " $SECRETS_VOLUME/client.keys
+    ! grep -q "^CLIENT_HANDSHAKE_TRAFFIC_SECRET " $SECRETS_VOLUME/server.keys || return 1
+    ! grep -q "^CLIENT_HANDSHAKE_TRAFFIC_SECRET " $SECRETS_VOLUME/client.keys || return 1
+  fi
+}
+
+# Poll docker logs for a string, failing after $3 * 0.1 s (default 100 iterations = 10 s).
+wait_for_log() {
+  local container="$1" pattern="$2" max="${3:-100}" i=0
+  while ! docker logs "$container" 2>&1 | grep -qs "$pattern"; do
+    i=$((i + 1))
+    if [ "$i" -ge "$max" ]; then
+      echo "Timed out waiting for '$pattern' in $container logs" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
+# Start the server container for a given classpath and provider, wait until ready,
+# and attach the agent if using attach mode.
+start_server() {
+  local cp="$1" provider="$2"
+  local agent_opt=""
+  if [ "$INJECT_TYPE" = "agent" ]; then
+    agent_opt="-javaagent:/project/$JAR_PATH=/secrets/server.keys"
+  fi
+  docker rm -f ssl-secrets-server 2>/dev/null || true
+  docker run -d --name ssl-secrets-server --network ssl-secrets \
+    -v $ROOT:/project \
+    -v $SECRETS_VOLUME:/secrets \
+    ssl-secrets-server java -cp "$cp" \
+    -Dprovider=$provider \
+    $agent_opt \
+    -Dkeystore.file=/secrets/keystore \
+    name.neykov.secrets.TestServer
+  wait_for_log ssl-secrets-server "server ready"
+  if [ "$INJECT_TYPE" = "attach" ]; then
+    docker exec ssl-secrets-server java -jar /project/$JAR_PATH list
+    docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 /secrets/server.keys
+  fi
+}
+
+# Verify that a captured pcap can be decrypted using the given keylog file.
+check_decryptable() {
+  local keyfile="$1"
+  ssl-secrets-utils tshark \
+    -o "tls.keylog_file:$keyfile" \
+    -nr /secrets/secrets.pcap -q -z follow,tls,ascii,0 | \
+    grep 'PLAIN TEXT'
+}
+
+# Run a single protocol test: capture traffic, run the client, assert keys and decryption.
+# Usage: run_proto_test <proto> <cp> <provider> <marker>
+run_proto_test() {
+  local proto="$1" cp="$2" provider="$3" marker="$4"
+
+  rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys \
+     $SECRETS_VOLUME/secrets.pcap || true
+
+  docker rm -f ssl-secrets-tcpdump 2>/dev/null || true
+  docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-server \
+    -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
+    tcpdump 'port 443' -Uw /secrets/secrets.pcap
+  wait_for_log ssl-secrets-tcpdump "listening on"
+
+  docker run --network ssl-secrets --rm \
+    -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
+    ssl-secrets-server java -cp "$cp" \
+    -Djavax.net.ssl.trustStoreType=jks \
+    -Djavax.net.ssl.trustStore=/secrets/truststore \
+    -Djavax.net.ssl.trustStorePassword=password \
+    -Djdk.tls.client.protocols=$proto \
+    -javaagent:/project/$JAR_PATH=/secrets/client.keys \
+    -Dprovider=$provider \
+    name.neykov.secrets.TestClient https://ssl-secrets-server/secret.txt
+
+  # Sometimes there won't be any captured packets — wait for a flush timeout.
+  sleep 1
+  docker stop ssl-secrets-tcpdump || true
+
+  # Show captured keys
+  ssl-secrets-utils cat /secrets/server.keys /secrets/client.keys
+
+  # Assert both sides captured secrets via the expected instrumentation path
+  grep -q "$marker" $SECRETS_VOLUME/server.keys
+  grep -q "$marker" $SECRETS_VOLUME/client.keys
+
+  # Assert the logged key type matches the negotiated protocol
+  assert_protocol_keys "$proto"
+
+  check_decryptable /secrets/server.keys
+  check_decryptable /secrets/client.keys
+}
+
+# Returns 0 (true) if version $1 is strictly less than version $2.
+version_lt() {
+  [ "$1" != "$2" ] && [ "$(printf '%s\n%s' "$1" "$2" | sort -V | head -1)" = "$1" ]
+}
+
+# Print the Maven artifact classifier for a given BC version.
+bc_classifier() {
+  version_lt "$1" "1.71" && echo "jdk15on" || echo "jdk15to18"
+}
+
+# Download bctls and bcprov JARs for a BC version into target/test-lib/bc-<version>/.
+# Uses the local Maven cache on subsequent runs.
+download_bc_version() {
+  local version="$1"
+  local dir="$ROOT/target/test-lib/bc-$version"
+  mkdir -p "$dir"
+  local classifier
+  classifier=$(bc_classifier "$version")
+  (cd "$ROOT" && mvn --no-transfer-progress dependency:copy \
+    -Dartifact="org.bouncycastle:bctls-${classifier}:${version}" \
+    -DoutputDirectory="target/test-lib/bc-$version/")
+  (cd "$ROOT" && mvn --no-transfer-progress dependency:copy \
+    -Dartifact="org.bouncycastle:bcprov-${classifier}:${version}" \
+    -DoutputDirectory="target/test-lib/bc-$version/")
+  # BC 1.70+ (jdk15to18 classifier) introduced bcutil as a separate JAR;
+  # bctls references public ASN.1 classes (e.g. OIWObjectIdentifiers) from it.
+  if [ "$classifier" = "jdk15to18" ]; then
+    (cd "$ROOT" && mvn --no-transfer-progress dependency:copy \
+      -Dartifact="org.bouncycastle:bcutil-${classifier}:${version}" \
+      -DoutputDirectory="target/test-lib/bc-$version/")
+  fi
+}
+
+# Resolve the latest BC release from Maven Central metadata.
+BC_LATEST=$(curl -sf "https://repo1.maven.org/maven2/org/bouncycastle/bctls-jdk15to18/maven-metadata.xml" | \
+  sed -n 's:.*<release>\(.*\)</release>.*:\1:p')
+BC_COMPAT_VERSIONS="1.57 1.66 $BC_LATEST"
+
+# Pre-populate versioned BC JAR directories for the compat matrix.
+for _BC_VERSION in $BC_COMPAT_VERSIONS; do
+  download_bc_version "$_BC_VERSION"
+done
+
 $CWD/test_errors.sh $JAR_PATH
 
 rm -r $TEST_TMP || true
@@ -51,6 +227,15 @@ cat <<EOF | docker run -i --rm --name ssl-secrets-keystore --network none \
     keytool -genkey -noprompt -alias server -dname "CN=ssl-secrets-server, OU=Unit, O=Company, L=Sofia, ST=Unknown, C=BG" \
       -storepass password -keypass password -keyalg RSA -keystore /secrets/keystore -deststoretype pkcs12 \
       -ext SAN=dns:ssl-secrets-server
+    keytool -exportcert -alias server -keystore /secrets/keystore -storepass password -file /secrets/server.crt
+    # The truststore must be JKS, not PKCS12. Old BCJSSE (e.g. 1.57) requires
+    # TrustedCertificateEntry entries in the truststore; the PKCS12 keystore above
+    # stores the cert as a PrivateKeyEntry, which old BCJSSE's TrustManagerFactory
+    # ignores, producing "trustAnchors parameter must be non-empty". Importing via
+    # -importcert into a JKS store creates a TrustedCertificateEntry that all
+    # BCJSSE versions accept.
+    keytool -importcert -noprompt -alias server -file /secrets/server.crt \
+      -keystore /secrets/truststore -storepass password -deststoretype jks
 EOF
 
 ssl-secrets-utils()
@@ -59,6 +244,12 @@ ssl-secrets-utils()
         -v $SECRETS_VOLUME:/secrets \
         ssl-secrets-utils "$@"
 }
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Cross-Java matrix: JSSE + BCJSSE (latest/default BC) across all Java versions
+# ══════════════════════════════════════════════════════════════════════════════
+
+DEFAULT_CP="/project/target/test-classes:/project/target/test-lib/*"
 
 for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
 
@@ -80,31 +271,10 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
     SKIP="${!SKIP_VAR}"
     MARKER_VAR="${PROVIDER}_MARKER"
     SECRET_MARKER="${!MARKER_VAR}"
-    PROVIDER_FLAG="-Dprovider=$PROVIDER"
 
     [[ " $SKIP " == *" $JAVA_IMAGE_TAG "* ]] && continue
 
-    docker rm -f ssl-secrets-server 2>/dev/null || true
-
-    SERVER_AGENT_OPT=""
-    if [ "$INJECT_TYPE" = "agent" ]; then
-      SERVER_AGENT_OPT="-javaagent:/project/$JAR_PATH=/secrets/server.keys"
-    fi
-    docker run -d --name ssl-secrets-server --network ssl-secrets \
-      -v $ROOT:/project \
-      -v $SECRETS_VOLUME:/secrets \
-      ssl-secrets-server java -cp "/project/target/test-classes:/project/target/test-lib/*" \
-      $PROVIDER_FLAG \
-      $SERVER_AGENT_OPT \
-      -Dkeystore.file=/secrets/keystore \
-      name.neykov.secrets.TestServer
-
-    while ! docker logs ssl-secrets-server 2>&1 | grep -qs "server ready"; do sleep 0.1; done
-
-    if [ "$INJECT_TYPE" = "attach" ]; then
-      docker exec ssl-secrets-server java -jar /project/$JAR_PATH list
-      docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 /secrets/server.keys
-    fi
+    start_server "$DEFAULT_CP" "$PROVIDER"
 
     for PROTO in "TLSv1.3" "TLSv1.2"; do
 
@@ -118,50 +288,50 @@ for JAVA_IMAGE_TAG in $JAVA_VERSIONS; do
         "   Java $JAVA_IMAGE_TAG - $PROVIDER $PROTO\n" \
         "=============================================\n\n"
 
-      rm $SECRETS_VOLUME/client.keys $SECRETS_VOLUME/server.keys \
-         $SECRETS_VOLUME/secrets.pcap || true
-
-      docker rm -f ssl-secrets-tcpdump 2>/dev/null || true
-      docker run -d --name ssl-secrets-tcpdump --rm --network container:ssl-secrets-server \
-        -v $SECRETS_VOLUME:/secrets ssl-secrets-utils \
-        tcpdump 'port 443' -Uw /secrets/secrets.pcap
-      while ! docker logs ssl-secrets-tcpdump 2>&1 | grep -qs "listening on"; do sleep 0.1; done
-
-      docker run --network ssl-secrets --rm \
-        -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
-        ssl-secrets-server java -cp "/project/target/test-classes:/project/target/test-lib/*" \
-        -Djavax.net.ssl.trustStoreType=pkcs12 \
-        -Djavax.net.ssl.trustStore=/secrets/keystore \
-        -Djavax.net.ssl.trustStorePassword=password \
-        -Djdk.tls.client.protocols=$PROTO \
-        -javaagent:/project/$JAR_PATH=/secrets/client.keys \
-        $PROVIDER_FLAG \
-        name.neykov.secrets.TestClient https://ssl-secrets-server/secret.txt
-
-      # Sometimes there won't be any captured packets — wait for a flush timeout.
-      sleep 1
-      docker stop ssl-secrets-tcpdump || true
-
-      # Show captured keys
-      ssl-secrets-utils cat /secrets/server.keys /secrets/client.keys
-
-      # Assert both sides captured secrets via the expected instrumentation path
-      grep -q "$SECRET_MARKER" $SECRETS_VOLUME/server.keys
-      grep -q "$SECRET_MARKER" $SECRETS_VOLUME/client.keys
-
-      # Check we can decrypt the capture using the server keys
-      ssl-secrets-utils tshark \
-        -o "tls.keylog_file:/secrets/server.keys" \
-        -nr /secrets/secrets.pcap -q -z follow,tls,ascii,0 | \
-        grep 'PLAIN TEXT'
-
-      # Check we can decrypt the capture using the client keys
-      ssl-secrets-utils tshark \
-        -o "tls.keylog_file:/secrets/client.keys" \
-        -nr /secrets/secrets.pcap -q -z follow,tls,ascii,0 | \
-        grep 'PLAIN TEXT'
+      run_proto_test "$PROTO" "$DEFAULT_CP" "$PROVIDER" "$SECRET_MARKER"
 
     done
+
+  done
+
+done
+
+docker rm -f ssl-secrets-server
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  BC compat matrix: BCJSSE across key BC versions on Java $BC_COMPAT_JAVA
+# ══════════════════════════════════════════════════════════════════════════════
+
+docker build -f $CWD/Dockerfile.server $CWD -t ssl-secrets-server \
+  --build-arg JAVA_IMAGE_TAG=$BC_COMPAT_JAVA
+
+for BC_VERSION in $BC_COMPAT_VERSIONS; do
+
+  CP="/project/target/test-classes:/project/target/test-lib/bc-$BC_VERSION/*"
+
+  echo -e "\n" \
+    "=============================================\n" \
+    "   Java $BC_COMPAT_JAVA - BCJSSE BC $BC_VERSION\n" \
+    "=============================================\n\n"
+
+  start_server "$CP" "BCJSSE"
+
+  for PROTO in "TLSv1.3" "TLSv1.2"; do
+
+    # BC < 1.70: TLSv1.3 not reliably exposed via the JSSE API (setEnabledProtocols
+    # and jdk.tls.client.protocols both ignore "TLSv1.3" in BCJSSE < 1.70).
+    # BC 1.70 was the major BCJSSE refactoring that properly wired TLS 1.3 into
+    # the standard protocol-name APIs.
+    if [[ "$PROTO" == "TLSv1.3" ]]; then
+      version_lt "$BC_VERSION" "1.70" && continue
+    fi
+
+    echo -e "\n" \
+      "=============================================\n" \
+      "   Java $BC_COMPAT_JAVA - BCJSSE BC $BC_VERSION $PROTO\n" \
+      "=============================================\n\n"
+
+    run_proto_test "$PROTO" "$CP" "BCJSSE" "$BCJSSE_MARKER"
 
   done
 

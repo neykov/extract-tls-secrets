@@ -29,6 +29,21 @@ public class TestClient {
 
         SSLSocket socket = (SSLSocket) factory.createSocket(host, port);
         socket.setSoTimeout(10000);
+        // BCJSSE 1.80+ ignores jdk.tls.client.protocols; set explicitly.
+        // SunJSSE processes the property internally, so skip for JSSE to avoid
+        // Java 6 compat issues (Java 6 server defaults to TLSv1.1).
+        // Use try-catch: older BC (e.g. 1.66) throws on protocol names it doesn't
+        // expose via setEnabledProtocols (e.g. "TLSv1.3"), but still negotiates TLS 1.3
+        // by default when both sides support it.
+        if ("BCJSSE".equals(provider)) {
+            String proto = System.getProperty("jdk.tls.client.protocols");
+            if (proto != null && !proto.isEmpty()) {
+                try {
+                    socket.setEnabledProtocols(proto.split(","));
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        }
         socket.startHandshake();
 
         String response = new BufferedReader(

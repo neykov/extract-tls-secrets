@@ -41,9 +41,6 @@ public class TestServer {
 
         SSLServerSocket serverSocket =
                 (SSLServerSocket) ctx.getServerSocketFactory().createServerSocket(443);
-        if ("BCJSSE".equals(provider)) {
-            serverSocket.setEnabledProtocols(new String[]{"TLSv1.2", "TLSv1.3"});
-        }
         System.out.println("server ready");
         System.out.flush();
 
