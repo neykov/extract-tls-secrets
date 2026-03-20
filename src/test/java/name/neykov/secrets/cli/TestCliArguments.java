@@ -14,9 +14,9 @@ public class TestCliArguments {
     }
 
     @SuppressWarnings("unused")
-    public void testAttachOptions() {
-        assert "secrets.txt".equals(new CliArguments("1234", "secrets.txt").attachOptions);
-        assert "".equals(new CliArguments("1234", "").attachOptions);
+    public void testSecretsPath() {
+        assert "secrets.txt".equals(new CliArguments("1234", "secrets.txt").secretsPath);
+        assert "".equals(new CliArguments("1234", "").secretsPath);
     }
 
     private static void pass(String[] args, String pidOrList, String secretPath) {

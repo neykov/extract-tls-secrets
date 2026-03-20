@@ -21,7 +21,7 @@ public class AgentAttach {
 
         try {
             CliArguments cliArguments = CliArguments.parse(args);
-            handle(jarUrl, jarFile, cliArguments.listOrPid, cliArguments.attachOptions);
+            handle(jarUrl, jarFile, cliArguments.listOrPid, cliArguments.secretsPath);
         } catch (IllegalArgumentException e) {
             help(jarFile, e.getMessage());
             System.exit(1);
@@ -49,10 +49,10 @@ public class AgentAttach {
         System.out.println("Note: The absolute path to the secrets file will be logged at INFO level in the target process.");
     }
 
-    private static void handle(URL jarUrl, File jarFile, String listOrPid, String attachOptions) throws Exception {
+    private static void handle(URL jarUrl, File jarFile, String listOrPid, String secretsPath) throws Exception {
         if (isAttachApiAvailable()) {
             // Either Java 9 or tools.jar already on classpath
-            AttachHelper.handle(jarFile.getAbsolutePath(), listOrPid, attachOptions);
+            AttachHelper.handle(jarFile.getAbsolutePath(), listOrPid, secretsPath);
         } else {
             File toolsFile = getToolsFile();
             URL toolsUrl = toolsFile.toURI().toURL();
@@ -63,7 +63,7 @@ public class AgentAttach {
 
             Method handleMethod = helper.getMethod("handle", String.class, String.class, String.class);
             try {
-                handleMethod.invoke(null, jarFile.getAbsolutePath(), listOrPid, attachOptions);
+                handleMethod.invoke(null, jarFile.getAbsolutePath(), listOrPid, secretsPath);
             } catch (InvocationTargetException e) {
                 Throwable targetEx = e.getTargetException();
                 if (targetEx.getClass().getName().equals(MessageException.class.getName())) {

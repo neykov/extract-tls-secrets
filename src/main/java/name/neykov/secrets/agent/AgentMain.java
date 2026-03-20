@@ -132,10 +132,8 @@ public class AgentMain {
     private static void attach(String agentArgs, Instrumentation inst, File jarFile) {
         openBaseModule(inst);
 
-        AgentArguments args = AgentArguments.parseArguments(agentArgs);
-
         // MasterSecretCallback is loaded in boot class loader
-        String canonicalSecretsPath = getCanonicalSecretsPath(args.secretsPath);
+        String canonicalSecretsPath = getCanonicalSecretsPath(agentArgs);
         MasterSecretCallback.setSecretsFileName(canonicalSecretsPath);
 
         inst.addTransformer(new Transformer(), true);

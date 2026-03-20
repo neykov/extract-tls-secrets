@@ -3,11 +3,11 @@ package name.neykov.secrets.cli;
 class CliArguments {
     final String listOrPid;
 
-    final String attachOptions;
+    final String secretsPath;
 
-    CliArguments(String listOrPid, String secretPath) {
+    CliArguments(String listOrPid, String secretsPath) {
         this.listOrPid = listOrPid;
-        this.attachOptions = secretPath;
+        this.secretsPath = secretsPath;
     }
 
     static CliArguments parse(String[] args) {
@@ -55,14 +55,14 @@ class CliArguments {
         CliArguments that = (CliArguments) o;
 
         if (!listOrPid.equals(that.listOrPid)) return false;
-        return attachOptions.equals(that.attachOptions);
+        return secretsPath.equals(that.secretsPath);
     }
 
     @Override
     public String toString() {
         return "CliArguments{" +
                 "listOrPid='" + listOrPid + '\'' +
-                ", attachOptions='" + attachOptions + '\'' +
+                ", secretsPath='" + secretsPath + '\'' +
                 '}';
     }
 }
