@@ -5,15 +5,13 @@ public class TestAgentArguments {
 
     @SuppressWarnings("unused")
     public void testParseArguments() {
-        check(false, "", "");
-        check(true, "", "log-private-key:");
-        check(false, "secrets.txt", "secrets.txt");
-        check(true, "secrets.txt", "log-private-key:secrets.txt");
+        check("", "");
+        check("secrets.txt", "secrets.txt");
     }
 
-    private static void check(boolean isPrivateKey, String secretPath, String options) {
+    private static void check(String secretPath, String options) {
         AgentArguments actualArg = AgentArguments.parseArguments(options);
-        AgentArguments expectedArg = new AgentArguments(isPrivateKey, secretPath);
+        AgentArguments expectedArg = new AgentArguments(secretPath);
         assert expectedArg.equals(actualArg) : actualArg;
     }
 }

@@ -5,13 +5,9 @@ class CliArguments {
 
     final String attachOptions;
 
-    CliArguments(String listOrPid, boolean isLogPrivateKey, String secretPath) {
+    CliArguments(String listOrPid, String secretPath) {
         this.listOrPid = listOrPid;
-        if (isLogPrivateKey) {
-            attachOptions = "log-private-key:" + secretPath;
-        } else {
-            attachOptions = secretPath;
-        }
+        this.attachOptions = secretPath;
     }
 
     static CliArguments parse(String[] args) {
@@ -22,19 +18,14 @@ class CliArguments {
             if (args.length > 1) {
                 throw new IllegalArgumentException("'list' action does not take any arguments");
             }
-            return new CliArguments("list", false, "");
+            return new CliArguments("list", "");
         } else {
             String pid = null;
-            boolean isLogPrivateKey = false;
             String secretPath = null;
 
             for (String arg : args) {
                 if (arg.startsWith("-")) {
-                    if ("--log-private-key".equals(arg)) {
-                        isLogPrivateKey = true;
-                    } else {
-                        throw new IllegalArgumentException("Unrecognised named parameter " + arg);
-                    }
+                    throw new IllegalArgumentException("Unrecognised named parameter " + arg);
                 } else {
                     if (pid == null) {
                         pid = arg;
@@ -52,7 +43,7 @@ class CliArguments {
                 secretPath = "";
             }
 
-            return new CliArguments(pid, isLogPrivateKey, secretPath);
+            return new CliArguments(pid, secretPath);
         }
     }
 
