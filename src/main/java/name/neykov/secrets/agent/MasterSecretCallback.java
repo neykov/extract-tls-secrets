@@ -146,10 +146,23 @@ public class MasterSecretCallback {
         }
     }
 
+    // BC 1.57 is the first release providing a JSSE implementation (BouncyCastleJsseProvider),
+    // via the bctls artifact. Earlier BC versions had only a low-level proprietary TLS API
+    // (org.bouncycastle.crypto.tls) with no SSLContext/SSLSocket integration.
+    //
+    // BC < 1.61 uses "securityParameters"; 1.61+ renamed it to "securityParametersHandshake".
+    private static Object getBcSecurityParams(Object tlsContext) throws IllegalAccessException, NoSuchFieldException {
+        try {
+            return get(tlsContext, "securityParametersHandshake");
+        } catch (NoSuchFieldException e) {
+            return get(tlsContext, "securityParameters");
+        }
+    }
+
     @SuppressWarnings("unused")
     public static void onBcMasterSecret(Object tlsContext) {
         try {
-            Object secParams = get(tlsContext, "securityParametersHandshake");
+            Object secParams = getBcSecurityParams(tlsContext);
             String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
             Object masterSecret = get(secParams, "masterSecret");
             String masterKey = bytesToHex((byte[])get(masterSecret, "data"));
@@ -158,14 +171,14 @@ public class MasterSecretCallback {
                 "CLIENT_RANDOM " + clientRandom + " " + masterKey
             );
         } catch (Exception e) {
-            log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.2 master secret", e);
+            log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.0-1.2 master secret", e);
         }
     }
 
     @SuppressWarnings("unused")
     public static void onBcTls13HandshakeSecrets(Object tlsContext) {
         try {
-            Object secParams = get(tlsContext, "securityParametersHandshake");
+            Object secParams = getBcSecurityParams(tlsContext);
             String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
             Object trafficSecretClient = get(secParams, "trafficSecretClient");
             Object trafficSecretServer = get(secParams, "trafficSecretServer");
@@ -184,7 +197,7 @@ public class MasterSecretCallback {
     @SuppressWarnings("unused")
     public static void onBcTls13ApplicationSecrets(Object tlsContext) {
         try {
-            Object secParams = get(tlsContext, "securityParametersHandshake");
+            Object secParams = getBcSecurityParams(tlsContext);
             String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
             Object trafficSecretClient = get(secParams, "trafficSecretClient");
             Object trafficSecretServer = get(secParams, "trafficSecretServer");
@@ -226,8 +239,15 @@ public class MasterSecretCallback {
         synchronized (DATE_FMT) {
             dateNow = DATE_FMT.format(new Date());
         }
-        Object negotiatedVersion = get(secParams, "negotiatedVersion");
-        String protocol = negotiatedVersion != null ? negotiatedVersion.toString() : "unknown";
+        // negotiatedVersion was added in BC 1.61; pre-1.61 supported TLS 1.0-1.2 but
+        // did not record the negotiated version, so we cannot determine it after the fact.
+        String protocol;
+        try {
+            Object negotiatedVersion = get(secParams, "negotiatedVersion");
+            protocol = negotiatedVersion != null ? negotiatedVersion.toString() : "unknown";
+        } catch (NoSuchFieldException e) {
+            protocol = "unknown";
+        }
         int cipherSuiteCode = ((Integer)get(secParams, "cipherSuite")).intValue();
         String cipherSuite = String.format("0x%04X", cipherSuiteCode);
         return "# " + dateNow + " BCJSSE CipherSuite: " + cipherSuite + ", Protocol: " + protocol;

@@ -139,12 +139,16 @@ public class Transformer implements ClassFileTransformer {
 
         @Override
         protected void instrumentClass(CtClass instrumentedClass) throws CannotCompileException, NotFoundException {
-            CtMethod handshakePhase = instrumentedClass.getDeclaredMethod("establish13PhaseHandshake");
-            handshakePhase.insertAfter(MasterSecretCallback.class.getName() + ".onBcTls13HandshakeSecrets($1);");
+            try {
+                CtMethod handshakePhase = instrumentedClass.getDeclaredMethod("establish13PhaseHandshake");
+                handshakePhase.insertAfter(MasterSecretCallback.class.getName() + ".onBcTls13HandshakeSecrets($1);");
 
-            CtMethod appPhase = instrumentedClass.getDeclaredMethod("establish13PhaseApplication");
-            appPhase.insertAfter(MasterSecretCallback.class.getName() + ".onBcTls13ApplicationSecrets($1);");
-            logBcjsseDetected();
+                CtMethod appPhase = instrumentedClass.getDeclaredMethod("establish13PhaseApplication");
+                appPhase.insertAfter(MasterSecretCallback.class.getName() + ".onBcTls13ApplicationSecrets($1);");
+                logBcjsseDetected();
+            } catch (NotFoundException e) {
+                log.info("BCJSSE TLS 1.3 support not detected; TLS 1.0-1.2 only.");
+            }
         }
     }
 
