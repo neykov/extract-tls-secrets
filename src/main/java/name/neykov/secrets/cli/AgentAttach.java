@@ -1,22 +1,20 @@
 package name.neykov.secrets.cli;
 
-import name.neykov.secrets.agent.AgentMain;
-
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
+import name.neykov.secrets.agent.AgentMain;
 
-/**
- * Client application that will load the agent in the target process at runtime.
- */
+/** Client application that will load the agent in the target process at runtime. */
 public class AgentAttach {
     public static void main(String[] args) throws Exception {
         URL jarUrl = AgentAttach.class.getProtectionDomain().getCodeSource().getLocation();
         File jarFile = new File(jarUrl.toURI());
         if (!jarFile.getName().endsWith(".jar")) {
-            System.err.println("The agent is not running from a jar file. Attachment will likely fail.");
+            System.err.println(
+                    "The agent is not running from a jar file." + " Attachment will likely fail.");
         }
 
         try {
@@ -43,13 +41,19 @@ public class AgentAttach {
         System.out.println("  * list - shows available Java processes to attach to");
         System.out.println("  * pid - the process ID to attach to (required)");
         System.out.println("  * secrets_file - file path to log the shared secrets to (optional);");
-        System.out.println("                   if a relative path is used it's resolved against the target process working folder;");
-        System.out.println("                   default value is '" + AgentMain.DEFAULT_SECRETS_FILE + "'");
+        System.out.println(
+                "                   if a relative path is used it's resolved against"
+                        + " the target process working folder;");
+        System.out.println(
+                "                   default value is '" + AgentMain.DEFAULT_SECRETS_FILE + "'");
         System.out.println();
-        System.out.println("Note: The absolute path to the secrets file will be logged at INFO level in the target process.");
+        System.out.println(
+                "Note: The absolute path to the secrets file will be logged at INFO level"
+                        + " in the target process.");
     }
 
-    private static void handle(URL jarUrl, File jarFile, String listOrPid, String secretsPath) throws Exception {
+    private static void handle(URL jarUrl, File jarFile, String listOrPid, String secretsPath)
+            throws Exception {
         if (isAttachApiAvailable()) {
             // Either Java 9 or tools.jar already on classpath
             AttachHelper.handle(jarFile.getAbsolutePath(), listOrPid, secretsPath);
@@ -61,7 +65,8 @@ public class AgentAttach {
             Thread.currentThread().setContextClassLoader(classLoader);
             Class<?> helper = classLoader.loadClass("name.neykov.secrets.cli.AttachHelper");
 
-            Method handleMethod = helper.getMethod("handle", String.class, String.class, String.class);
+            Method handleMethod =
+                    helper.getMethod("handle", String.class, String.class, String.class);
             try {
                 handleMethod.invoke(null, jarFile.getAbsolutePath(), listOrPid, secretsPath);
             } catch (InvocationTargetException e) {
@@ -73,7 +78,6 @@ public class AgentAttach {
                 }
             }
         }
-
     }
 
     private static File getToolsFile() throws MessageException {
@@ -109,14 +113,15 @@ public class AgentAttach {
         if (System.getProperty("java.version").startsWith("1.")) {
             // JAVA_HOME required
             throw new MessageException(
-                "Invalid JAVA_HOME environment variable '" + javaHome.getAbsolutePath() + "'.",
-                "Must point to a local JDK installation containing a 'lib/tools.jar' file."
-            );
+                    "Invalid JAVA_HOME environment variable '" + javaHome.getAbsolutePath() + "'.",
+                    "Must point to a local JDK installation containing a"
+                            + " 'lib/tools.jar' file.");
         } else {
             // No need for JAVA_HOME. Not executed from a JDK java executable.
             throw new MessageException(
-                "No access to JDK classes. Make sure to use the java executable from a JDK install."
-            );
+                    "No access to JDK classes."
+                            + " Make sure to use the java executable"
+                            + " from a JDK install.");
         }
     }
 
@@ -126,7 +131,9 @@ public class AgentAttach {
             return new File(javaHomeEnv);
         }
 
-        throw new MessageException("No JAVA_HOME environment variable found. Must point to a local JDK installation.");
+        throw new MessageException(
+                "No JAVA_HOME environment variable found."
+                        + " Must point to a local JDK installation.");
     }
 
     private static boolean isAttachApiAvailable() {
@@ -137,5 +144,4 @@ public class AgentAttach {
             return false;
         }
     }
-
 }

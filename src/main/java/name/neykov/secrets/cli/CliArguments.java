@@ -32,7 +32,8 @@ class CliArguments {
                     } else if (secretPath == null) {
                         secretPath = arg;
                     } else {
-                        throw new IllegalArgumentException("Too many positional parameters: " + arg);
+                        throw new IllegalArgumentException(
+                                "Too many positional parameters: " + arg);
                     }
                 }
             }
@@ -49,20 +50,30 @@ class CliArguments {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         CliArguments that = (CliArguments) o;
 
-        if (!listOrPid.equals(that.listOrPid)) return false;
+        if (!listOrPid.equals(that.listOrPid)) {
+            return false;
+        }
         return secretsPath.equals(that.secretsPath);
     }
 
     @Override
     public String toString() {
-        return "CliArguments{" +
-                "listOrPid='" + listOrPid + '\'' +
-                ", secretsPath='" + secretsPath + '\'' +
-                '}';
+        return "CliArguments{"
+                + "listOrPid='"
+                + listOrPid
+                + '\''
+                + ", secretsPath='"
+                + secretsPath
+                + '\''
+                + '}';
     }
 }

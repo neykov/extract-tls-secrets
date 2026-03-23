@@ -1,28 +1,26 @@
 package name.neykov.secrets.cli;
 
-import java.io.IOException;
-
 import com.sun.tools.attach.AgentInitializationException;
 import com.sun.tools.attach.AgentLoadException;
 import com.sun.tools.attach.AttachNotSupportedException;
 import com.sun.tools.attach.VirtualMachine;
 import com.sun.tools.attach.VirtualMachineDescriptor;
-
+import java.io.IOException;
 
 /**
- * <p>
- * A companion to AgentAttach that needs to be loaded in a different class loader, due to
- * the com.sun.tools dependencies. When tools.jar is not already on the classpath it's
- * added to a new class loader along with AttachHelper and loaded from there.
- * <p>
- * Alternative when tools.jar not available -
- * <a href="https://github.com/apangin/jattach">jattach</a>
- * <p>
- * <a href="https://github.com/raphw/byte-buddy">Byte Buddy</a> abstracts
- * the API, including a fallback implementing the attach api.
+ * A companion to AgentAttach that needs to be loaded in a different class loader, due to the
+ * com.sun.tools dependencies. When tools.jar is not already on the classpath it's added to a new
+ * class loader along with AttachHelper and loaded from there.
+ *
+ * <p>Alternative when tools.jar not available - <a
+ * href="https://github.com/apangin/jattach">jattach</a>
+ *
+ * <p><a href="https://github.com/raphw/byte-buddy">Byte Buddy</a> abstracts the API, including a
+ * fallback implementing the attach api.
  */
 public class AttachHelper {
-    public static void handle(String jarPath, String pid, String attachOptions) throws MessageException {
+    public static void handle(String jarPath, String pid, String attachOptions)
+            throws MessageException {
         if (pid.equals("list")) {
             System.out.print(AttachHelper.list());
         } else {
@@ -30,12 +28,15 @@ public class AttachHelper {
                 AttachHelper.attach(pid, jarPath, attachOptions);
                 System.out.println("Successfully attached to process ID " + pid + ".");
             } catch (IllegalStateException e) {
-                String msg = e.getMessage() != null ? e.getMessage() : "Failed attaching to java process " + pid;
+                String msg =
+                        e.getMessage() != null
+                                ? e.getMessage()
+                                : "Failed attaching to java process " + pid;
                 throw new MessageException(msg);
             }
         }
-
     }
+
     private static void attach(String pid, String jarPath, String options) {
         try {
             VirtualMachine vm = VirtualMachine.attach(pid);
@@ -61,9 +62,12 @@ public class AttachHelper {
     }
 
     private static IllegalStateException error(String pid, Exception e) {
-        StringBuilder msg = new StringBuilder("Failed to attach to java process ").append(pid).append(".");
+        StringBuilder msg =
+                new StringBuilder("Failed to attach to java process ").append(pid).append(".");
         if (!pidExists(pid)) {
-            msg.append("\n\nNo Java process with ID ").append(pid).append(" found. Running Java processes:\n");
+            msg.append("\n\nNo Java process with ID ")
+                    .append(pid)
+                    .append(" found. Running Java processes:\n");
             msg.append(list());
         } else {
             msg.append(" Cause: ").append(e.getMessage()).append(".");

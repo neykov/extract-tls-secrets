@@ -52,7 +52,10 @@ public class TestServer {
                 out.flush();
             } catch (Exception ignored) {
             } finally {
-                try { socket.close(); } catch (Exception ignored) {}
+                try {
+                    socket.close();
+                } catch (Exception ignored) {
+                }
             }
         }
     }

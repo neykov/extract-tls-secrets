@@ -5,28 +5,28 @@ import java.io.IOException;
 import java.io.Writer;
 import java.lang.reflect.Field;
 import java.security.Key;
+import java.text.SimpleDateFormat;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLSession;
 
-import java.util.Date;
-import java.text.SimpleDateFormat;
-
-//Secrets file format:
-//https://github.com/boundary/wireshark/blob/d029f48e4fd74b09848fc309630e5dfdc5d602f2/epan/dissectors/packet-ssl-utils.c#L4164-L4182
-//https://gitlab.com/wireshark/wireshark/-/blob/d24b1b08f51ce740aacd26537af131bed374e751/epan/dissectors/packet-tls-utils.c#L6814-6851
-//https://bensmyth.com/files/Smyth19-TLS-tutorial.pdf
-//https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-00.html
+// Secrets file format:
+// https://github.com/boundary/wireshark/blob/d029f48e4fd74b09848fc309630e5dfdc5d602f2/epan/dissectors/packet-ssl-utils.c#L4164-L4182
+// https://gitlab.com/wireshark/wireshark/-/blob/d24b1b08f51ce740aacd26537af131bed374e751/epan/dissectors/packet-tls-utils.c#L6814-6851
+// https://bensmyth.com/files/Smyth19-TLS-tutorial.pdf
+// https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-00.html
 public class MasterSecretCallback {
     private static final Logger log = Logger.getLogger(MasterSecretCallback.class.getName());
     private static final String NL = System.getProperty("line.separator");
-    private static final SimpleDateFormat DATE_FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ");
+    private static final SimpleDateFormat DATE_FMT =
+            new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ");
     private static String secretsFileName;
+
     public static void setSecretsFileName(String secretsFileName) {
         MasterSecretCallback.secretsFileName = secretsFileName;
     }
@@ -37,30 +37,27 @@ public class MasterSecretCallback {
             String connectionDetails = getConnectionDetails(sslSession);
             String sessionKey = bytesToHex(sslSession.getId());
             String masterKey = bytesToHex(masterSecret.getEncoded());
-            write(
-                connectionDetails,
-                "RSA Session-ID:" + sessionKey + " Master-Key:" + masterKey
-            );
+            write(connectionDetails, "RSA Session-ID:" + sessionKey + " Master-Key:" + masterKey);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
     }
 
     @SuppressWarnings("unused")
-    public static void onCalculateKeys(SSLSession sslSession, Object randomCookie, Key masterSecret) {
+    public static void onCalculateKeys(
+            SSLSession sslSession, Object randomCookie, Key masterSecret) {
         try {
             String connectionDetails = getConnectionDetails(sslSession);
-            String clientRandom = bytesToHex((byte[])get(randomCookie, "random_bytes"));
+            String clientRandom = bytesToHex((byte[]) get(randomCookie, "random_bytes"));
             String masterKey = bytesToHex(masterSecret.getEncoded());
-            write(
-                connectionDetails,
-                "CLIENT_RANDOM " + clientRandom + " " + masterKey);
+            write(connectionDetails, "CLIENT_RANDOM " + clientRandom + " " + masterKey);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving master secret from " + sslSession, e);
         }
     }
 
     private static Map<String, String> TLS13_SECRET_NAMES;
+
     static {
         Map<String, String> secrets = new HashMap<String, String>();
 
@@ -91,19 +88,24 @@ public class MasterSecretCallback {
             SSLSession sslSession = (SSLSession) get(context, "handshakeSession");
             String connectionDetails = getConnectionDetails(sslSession);
             Object clientRandom = get(context, "clientHelloRandom");
-            String clientRandomBytes = bytesToHex((byte[])get(clientRandom, "randomBytes"));
-            write(connectionDetails, secretName + " " + clientRandomBytes + " " + bytesToHex(key.getEncoded()));
+            String clientRandomBytes = bytesToHex((byte[]) get(clientRandom, "randomBytes"));
+            write(
+                    connectionDetails,
+                    secretName + " " + clientRandomBytes + " " + bytesToHex(key.getEncoded()));
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving client random secret from " + context, e);
         }
     }
 
-    // BC 1.57 is the first release providing a JSSE implementation (BouncyCastleJsseProvider),
-    // via the bctls artifact. Earlier BC versions had only a low-level proprietary TLS API
+    // BC 1.57 is the first release providing a JSSE implementation
+    // (BouncyCastleJsseProvider), via the bctls artifact. Earlier BC versions had only a
+    // low-level proprietary TLS API
     // (org.bouncycastle.crypto.tls) with no SSLContext/SSLSocket integration.
     //
-    // BC < 1.61 uses "securityParameters"; 1.61+ renamed it to "securityParametersHandshake".
-    private static Object getBcSecurityParams(Object tlsContext) throws IllegalAccessException, NoSuchFieldException {
+    // BC < 1.61 uses "securityParameters"; 1.61+ renamed it to
+    // "securityParametersHandshake".
+    private static Object getBcSecurityParams(Object tlsContext)
+            throws IllegalAccessException, NoSuchFieldException {
         try {
             return get(tlsContext, "securityParametersHandshake");
         } catch (NoSuchFieldException e) {
@@ -115,13 +117,12 @@ public class MasterSecretCallback {
     public static void onBcMasterSecret(Object tlsContext) {
         try {
             Object secParams = getBcSecurityParams(tlsContext);
-            String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
+            String clientRandom = bytesToHex((byte[]) get(secParams, "clientRandom"));
             Object masterSecret = get(secParams, "masterSecret");
-            String masterKey = bytesToHex((byte[])get(masterSecret, "data"));
+            String masterKey = bytesToHex((byte[]) get(masterSecret, "data"));
             write(
-                getBcConnectionDetails(secParams),
-                "CLIENT_RANDOM " + clientRandom + " " + masterKey
-            );
+                    getBcConnectionDetails(secParams),
+                    "CLIENT_RANDOM " + clientRandom + " " + masterKey);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.0-1.2 master secret", e);
         }
@@ -131,16 +132,23 @@ public class MasterSecretCallback {
     public static void onBcTls13HandshakeSecrets(Object tlsContext) {
         try {
             Object secParams = getBcSecurityParams(tlsContext);
-            String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
+            String clientRandom = bytesToHex((byte[]) get(secParams, "clientRandom"));
             Object trafficSecretClient = get(secParams, "trafficSecretClient");
             Object trafficSecretServer = get(secParams, "trafficSecretServer");
-            String clientHandshakeTrafficSecret = bytesToHex((byte[])get(trafficSecretClient, "data"));
-            String serverHandshakeTrafficSecret = bytesToHex((byte[])get(trafficSecretServer, "data"));
+            String clientHandshakeTrafficSecret =
+                    bytesToHex((byte[]) get(trafficSecretClient, "data"));
+            String serverHandshakeTrafficSecret =
+                    bytesToHex((byte[]) get(trafficSecretServer, "data"));
             write(
-                getBcConnectionDetails(secParams),
-                "CLIENT_HANDSHAKE_TRAFFIC_SECRET " + clientRandom + " " + clientHandshakeTrafficSecret,
-                "SERVER_HANDSHAKE_TRAFFIC_SECRET " + clientRandom + " " + serverHandshakeTrafficSecret
-            );
+                    getBcConnectionDetails(secParams),
+                    "CLIENT_HANDSHAKE_TRAFFIC_SECRET "
+                            + clientRandom
+                            + " "
+                            + clientHandshakeTrafficSecret,
+                    "SERVER_HANDSHAKE_TRAFFIC_SECRET "
+                            + clientRandom
+                            + " "
+                            + serverHandshakeTrafficSecret);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.3 handshake secrets", e);
         }
@@ -150,19 +158,18 @@ public class MasterSecretCallback {
     public static void onBcTls13ApplicationSecrets(Object tlsContext) {
         try {
             Object secParams = getBcSecurityParams(tlsContext);
-            String clientRandom = bytesToHex((byte[])get(secParams, "clientRandom"));
+            String clientRandom = bytesToHex((byte[]) get(secParams, "clientRandom"));
             Object trafficSecretClient = get(secParams, "trafficSecretClient");
             Object trafficSecretServer = get(secParams, "trafficSecretServer");
             Object exporterMasterSecret = get(secParams, "exporterMasterSecret");
-            String clientAppTrafficSecret = bytesToHex((byte[])get(trafficSecretClient, "data"));
-            String serverAppTrafficSecret = bytesToHex((byte[])get(trafficSecretServer, "data"));
-            String exporterSecret = bytesToHex((byte[])get(exporterMasterSecret, "data"));
+            String clientAppTrafficSecret = bytesToHex((byte[]) get(trafficSecretClient, "data"));
+            String serverAppTrafficSecret = bytesToHex((byte[]) get(trafficSecretServer, "data"));
+            String exporterSecret = bytesToHex((byte[]) get(exporterMasterSecret, "data"));
             write(
-                getBcConnectionDetails(secParams),
-                "CLIENT_TRAFFIC_SECRET_0 " + clientRandom + " " + clientAppTrafficSecret,
-                "SERVER_TRAFFIC_SECRET_0 " + clientRandom + " " + serverAppTrafficSecret,
-                "EXPORTER_SECRET " + clientRandom + " " + exporterSecret
-            );
+                    getBcConnectionDetails(secParams),
+                    "CLIENT_TRAFFIC_SECRET_0 " + clientRandom + " " + clientAppTrafficSecret,
+                    "SERVER_TRAFFIC_SECRET_0 " + clientRandom + " " + serverAppTrafficSecret,
+                    "EXPORTER_SECRET " + clientRandom + " " + exporterSecret);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.3 application secrets", e);
         }
@@ -182,17 +189,25 @@ public class MasterSecretCallback {
         if (peerHost != null) {
             peerHostSection = "Peer: " + peerHost + ":" + portHost + ", ";
         }
-        return  "# " + dateNow + " " + peerHostSection +
-                        "CipherSuite: " + cipherSuite + ", Protocol: " + protocol;
+        return "# "
+                + dateNow
+                + " "
+                + peerHostSection
+                + "CipherSuite: "
+                + cipherSuite
+                + ", Protocol: "
+                + protocol;
     }
 
-    private static String getBcConnectionDetails(Object secParams) throws IllegalAccessException, NoSuchFieldException {
+    private static String getBcConnectionDetails(Object secParams)
+            throws IllegalAccessException, NoSuchFieldException {
         String dateNow;
         synchronized (DATE_FMT) {
             dateNow = DATE_FMT.format(new Date());
         }
         // negotiatedVersion was added in BC 1.61; pre-1.61 supported TLS 1.0-1.2 but
-        // did not record the negotiated version, so we cannot determine it after the fact.
+        // did not record the negotiated version, so we cannot determine it after the
+        // fact.
         String protocol;
         try {
             Object negotiatedVersion = get(secParams, "negotiatedVersion");
@@ -200,7 +215,7 @@ public class MasterSecretCallback {
         } catch (NoSuchFieldException e) {
             protocol = "unknown";
         }
-        int cipherSuiteCode = ((Integer)get(secParams, "cipherSuite")).intValue();
+        int cipherSuiteCode = ((Integer) get(secParams, "cipherSuite")).intValue();
         String cipherSuite = String.format("0x%04X", cipherSuiteCode);
         return "# " + dateNow + " BCJSSE CipherSuite: " + cipherSuite + ", Protocol: " + protocol;
     }
@@ -214,7 +229,8 @@ public class MasterSecretCallback {
         out.close();
     }
 
-    private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
+    private static final char[] hexArray = "0123456789ABCDEF".toCharArray();
+
     private static String bytesToHex(byte[] bytes) {
         char[] hexChars = new char[bytes.length * 2];
         for (int j = 0; j < bytes.length; j++) {
@@ -225,7 +241,8 @@ public class MasterSecretCallback {
         return new String(hexChars);
     }
 
-    private static Object get(Object newObj, String field) throws IllegalAccessException, NoSuchFieldException {
+    private static Object get(Object newObj, String field)
+            throws IllegalAccessException, NoSuchFieldException {
         Class<?> type = newObj.getClass();
         while (type != null) {
             try {

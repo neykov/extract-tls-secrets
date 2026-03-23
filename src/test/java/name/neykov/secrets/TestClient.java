@@ -46,8 +46,8 @@ public class TestClient {
         }
         socket.startHandshake();
 
-        String response = new BufferedReader(
-                new InputStreamReader(socket.getInputStream())).readLine();
+        String response =
+                new BufferedReader(new InputStreamReader(socket.getInputStream())).readLine();
         socket.close();
 
         if (!"PLAIN TEXT".equals(response)) {

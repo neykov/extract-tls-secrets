@@ -16,12 +16,9 @@ import java.util.Set;
 import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
 import javax.net.ssl.SSLEngine;
 
-/**
- * Entry point of the agent. Loaded in the "App" class loader
- */
+/** Entry point of the agent. Loaded in the "App" class loader */
 public class AgentMain {
     private static final Logger log = Logger.getLogger(AgentMain.class.getName());
 
@@ -44,71 +41,81 @@ public class AgentMain {
     }
 
     /**
-     * The agent is loaded in the App class loader. Instrumented
-     * classes are in the boot class loader so can't see "MasterSecretCallback"
-     * by default. Adding self to the boot class loader will make
-     * MasterSecretCallback visible to core classes. Note that this leads
-     * to a split-brain state where some classes of the jar are loaded
-     * by the App class loader and some in the boot class loader.
+     * The agent is loaded in the App class loader. Instrumented classes are in the boot class
+     * loader so can't see "MasterSecretCallback" by default. Adding self to the boot class loader
+     * will make MasterSecretCallback visible to core classes. Note that leads to a split-brain
+     * state where some classes of the jar are loaded by the App class loader and some in the boot
+     * class loader.
      */
     private static void initClassPath(Instrumentation inst, File jarFile) {
         try {
             // Will cause the logging of:
-            //  OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader
+            //  OpenJDK 64-Bit Server VM warning: Sharing is only supported for
+            //  boot loader
             //  classes because bootstrap classpath has been appended
             inst.appendToBootstrapClassLoaderSearch(new JarFile(jarFile));
         } catch (IOException e) {
-            log.log(Level.WARNING, "Failed attaching to process. Can't access jar file " + jarFile, e);
+            log.log(
+                    Level.WARNING,
+                    "Failed attaching to process. Can't access jar file " + jarFile,
+                    e);
             throw new IllegalStateException(e);
         }
     }
 
-  public static URL getJarFileOrClassFolder(Class<?> clz){
-    URL path = clz.getProtectionDomain().getCodeSource().getLocation();
-    if (null == path)
-    {
-      //the class is loaded by Java Extension Class Loader, not System Class Loader, so try parse by full path
-      String classFullName = clz.getName().replace('.', '/') + ".class";
-      URL selfFullResourceUrl = clz.getClassLoader().getResource(classFullName);
-      log.log(Level.INFO, "selfFullResourceUrl=" + selfFullResourceUrl);
+    public static URL getJarFileOrClassFolder(Class<?> clz) {
+        URL path = clz.getProtectionDomain().getCodeSource().getLocation();
+        if (null == path) {
+            // the class is loaded by Java Extension Class Loader, not System
+            // Class Loader, so try parse by full path
+            String classFullName = clz.getName().replace('.', '/') + ".class";
+            URL selfFullResourceUrl = clz.getClassLoader().getResource(classFullName);
+            log.log(Level.INFO, "selfFullResourceUrl=" + selfFullResourceUrl);
 
-      if (null != selfFullResourceUrl){
-        String strFullUrlPath = selfFullResourceUrl.toString();
+            if (null != selfFullResourceUrl) {
+                String strFullUrlPath = selfFullResourceUrl.toString();
 
-        int classNameIndex = strFullUrlPath.indexOf(classFullName);
-        if (classNameIndex > 0) {
-          //sample: jar:file:/E:/CodeGithub/xxx/xxx.jar!/ , so need remove "jar:" and "!/"
-          String strRealUrl = strFullUrlPath.substring(0, classNameIndex);
+                int classNameIndex = strFullUrlPath.indexOf(classFullName);
+                if (classNameIndex > 0) {
+                    // sample: jar:file:/E:/CodeGithub/xxx/xxx.jar!/ ,
+                    // so need remove "jar:" and "!/"
+                    String strRealUrl = strFullUrlPath.substring(0, classNameIndex);
 
-          int startIndex = 0;
-          int endIndex = strRealUrl.length();
-          if(strRealUrl.startsWith("jar:")){
-            startIndex = 4;
-          }
-          if(strRealUrl.endsWith("!/")) {
-            endIndex = strRealUrl.length() - 2;
-          }
-          strRealUrl = strRealUrl.substring(startIndex, endIndex);
-          log.log(Level.INFO, "selfFullResourceUrl=" + selfFullResourceUrl);
-          try {
-            path = new URL(strRealUrl);
-          } catch (MalformedURLException e) {
-            log.log(Level.WARNING, "generate URL failed, strRealUrl = " + strRealUrl, e);
-            path = null;
-          }
+                    int startIndex = 0;
+                    int endIndex = strRealUrl.length();
+                    if (strRealUrl.startsWith("jar:")) {
+                        startIndex = 4;
+                    }
+                    if (strRealUrl.endsWith("!/")) {
+                        endIndex = strRealUrl.length() - 2;
+                    }
+                    strRealUrl = strRealUrl.substring(startIndex, endIndex);
+                    log.log(Level.INFO, "selfFullResourceUrl=" + selfFullResourceUrl);
+                    try {
+                        path = new URL(strRealUrl);
+                    } catch (MalformedURLException e) {
+                        log.log(
+                                Level.WARNING,
+                                "generate URL failed, strRealUrl = " + strRealUrl,
+                                e);
+                        path = null;
+                    }
+                }
+            }
         }
-      }
+        // URLDecoder.decode(path.getPath(), StandardCharsets.UTF_8);
+        return path;
     }
-    //URLDecoder.decode(path.getPath(), StandardCharsets.UTF_8);
-    return path;
-  }
 
     private static File getJarFile() {
         URL jarUrl = getJarFileOrClassFolder(AgentMain.class);
         try {
             return new File(jarUrl.toURI());
         } catch (URISyntaxException e) {
-            log.log(Level.WARNING, "Failed attaching to process. Can't convert jar to a local path " + jarUrl, e);
+            log.log(
+                    Level.WARNING,
+                    "Failed attaching to process. Can't convert jar to a local path " + jarUrl,
+                    e);
             throw new IllegalStateException(e);
         }
     }
@@ -122,7 +129,12 @@ public class AgentMain {
                 try {
                     inst.retransformClasses(loadedClass);
                 } catch (Throwable e) {
-                    log.log(Level.WARNING, "Failed instrumenting " + loadedClass.getName() + ". Shared secret extraction might fail.", e);
+                    log.log(
+                            Level.WARNING,
+                            "Failed instrumenting "
+                                    + loadedClass.getName()
+                                    + ". Shared secret extraction might fail.",
+                            e);
                     throw new IllegalStateException(e);
                 }
             }
@@ -138,7 +150,12 @@ public class AgentMain {
 
         inst.addTransformer(new Transformer(), true);
 
-        log.info("Successfully attached agent " + jarFile + ". Logging to " + canonicalSecretsPath + ". ");
+        log.info(
+                "Successfully attached agent "
+                        + jarFile
+                        + ". Logging to "
+                        + canonicalSecretsPath
+                        + ". ");
     }
 
     private static void openBaseModule(Instrumentation inst) {
@@ -155,13 +172,24 @@ public class AgentMain {
 
         try {
             Map<String, Set<Object>> extraOpens = new HashMap<String, Set<Object>>();
-            extraOpens.put("sun.security.ssl", new HashSet<Object>(Collections.singletonList(getModule.invoke(MasterSecretCallback.class))));
+            extraOpens.put(
+                    "sun.security.ssl",
+                    new HashSet<Object>(
+                            Collections.singletonList(
+                                    getModule.invoke(MasterSecretCallback.class))));
 
-            Method redefineModule = Instrumentation.class.getMethod("redefineModule",
-                    getModule.getReturnType(), Set.class, Map.class,
-                    Map.class, Set.class, Map.class);
+            Method redefineModule =
+                    Instrumentation.class.getMethod(
+                            "redefineModule",
+                            getModule.getReturnType(),
+                            Set.class,
+                            Map.class,
+                            Map.class,
+                            Set.class,
+                            Map.class);
 
-            redefineModule.invoke(inst,
+            redefineModule.invoke(
+                    inst,
                     getModule.invoke(SSLEngine.class),
                     Collections.EMPTY_SET,
                     Collections.EMPTY_MAP,
@@ -206,5 +234,4 @@ public class AgentMain {
             throw new IllegalStateException(e);
         }
     }
-
 }
