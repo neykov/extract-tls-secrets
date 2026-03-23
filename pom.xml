@@ -221,63 +221,6 @@
   </build>
 
   <profiles>
-    <!--
-      Alternative when tools.jar not available
-      https://github.com/apangin/jattach
-
-      Byte Buddy (https://github.com/raphw/byte-buddy) abstracts
-      the API, including a fallback implementing the attach api.
-    -->
-    <profile>
-      <id>jdk-profile</id>
-      <activation>
-        <file>
-          <exists>${java.home}/lib/tools.jar</exists>
-        </file>
-      </activation>
-      <properties>
-        <tools.path>${java.home}/lib/tools.jar</tools.path>
-      </properties>
-    </profile>
-    <profile>
-      <id>jre-profile</id>
-      <activation>
-        <file>
-          <exists>${java.home}/../lib/tools.jar</exists>
-        </file>
-      </activation>
-      <properties>
-        <tools.path>${java.home}/../lib/tools.jar</tools.path>
-      </properties>
-    </profile>
-    <profile>
-      <id>apple-jdk</id>
-      <activation>
-        <file>
-          <exists>${java.home}/../Classes/classes.jar</exists>
-        </file>
-      </activation>
-      <properties>
-        <tools.path>${java.home}/../Classes/classes.jar</tools.path>
-      </properties>
-    </profile>
-    <profile>
-      <id>tools</id>
-      <activation>
-          <!-- No dependencies needed by Jigsaw -->
-        <jdk>[,1.9)</jdk>
-      </activation>
-      <dependencies>
-        <dependency>
-          <groupId>com.sun</groupId>
-          <artifactId>tools</artifactId>
-          <scope>system</scope>
-          <version>1.6</version>
-          <systemPath>${tools.path}</systemPath>
-        </dependency>
-      </dependencies>
-    </profile>
-
     <profile>
       <id>Release</id>
       <build>
