@@ -115,6 +115,15 @@ start_server() {
     docker exec ssl-secrets-server java -jar /project/$JAR_PATH list
     docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 /secrets/server.keys
   fi
+  check_provider_logs "$provider" "$INJECT_TYPE"
+}
+
+# Assert agent logged expected security provider diagnostics.
+# Usage: check_provider_logs <provider> <inject_type>
+check_provider_logs() {
+  local provider="$1" inject_type="$2"
+  local ssl_provider
+  wait_for_log ssl-secrets-server "Registered TLS providers"
 }
 
 # Verify that a captured pcap can be decrypted using the given keylog file.

@@ -8,6 +8,8 @@ import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.security.Provider;
+import java.security.Security;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -17,6 +19,7 @@ import java.util.jar.JarFile;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.net.ssl.SSLEngine;
+import name.neykov.secrets.Java6Compat;
 
 /** Entry point of the agent. Loaded in the "App" class loader */
 public class AgentMain {
@@ -150,12 +153,36 @@ public class AgentMain {
 
         inst.addTransformer(new Transformer(), true);
 
+        logSecurityProviders();
+
         log.info(
                 "Successfully attached agent "
                         + jarFile
                         + ". Logging to "
                         + canonicalSecretsPath
                         + ". ");
+    }
+
+    private static void logSecurityProviders() {
+        Provider[] sslProviders = Security.getProviders("SSLContext.TLS");
+        if (sslProviders == null || sslProviders.length == 0) {
+            log.warning("No provider found for SSLContext.TLS — TLS secrets will not be captured.");
+            return;
+        }
+        String[] names = new String[sslProviders.length];
+        for (int i = 0; i < sslProviders.length; i++) {
+            names[i] = sslProviders[i].getName() + " " + sslProviders[i].getVersion();
+        }
+        log.info("Registered TLS providers: " + Java6Compat.join(", ", names));
+
+        String activeSslProvider = sslProviders[0].getName();
+        if (!activeSslProvider.equals("SunJSSE") && !activeSslProvider.equals("BCJSSE")) {
+            log.warning(
+                    "TLS provider '"
+                            + activeSslProvider
+                            + "' is not supported by this tool."
+                            + " TLS secrets will not be captured.");
+        }
     }
 
     private static void openBaseModule(Instrumentation inst) {
