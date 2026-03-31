@@ -31,9 +31,22 @@ PROVIDERS="JSSE BCJSSE"
 
 JSSE_SKIP=""
 JSSE_MARKER="CipherSuite:"
+JSSE_SSL_PROVIDER="SunJSSE"
 
 BCJSSE_SKIP=""
 BCJSSE_MARKER="BCJSSE CipherSuite:"
+# BCJSSE is registered by the application after premain; not visible in the
+# agent's initial provider log. Leave unset so check_provider_logs skips it.
+BCJSSE_SSL_PROVIDER=""
+
+# IBM JSSE2 — ibmjava:8 (IBM SDK for Java 8, IBM J9 JVM) registers IBMJSSE2 as
+# provider #1 before premain; the provider-name check is valid for that image.
+# ibm-semeru-runtimes (open edition) uses SunJSSE and is covered by JSSE above.
+IBMJSSE2_SKIP=""
+# IBM's TlsKeyMaterialGenerator hook writes CLIENT_RANDOM directly without a
+# comment line (no SSL session available at the crypto layer).
+IBMJSSE2_MARKER="CLIENT_RANDOM"
+IBMJSSE2_SSL_PROVIDER="IBMJSSE2"
 # ──────────────────────────────────────────────────────────────────────────
 
 # ── BC compat matrix ───────────────────────────────────────────────────────
@@ -122,8 +135,12 @@ start_server() {
 # Usage: check_provider_logs <provider> <inject_type>
 check_provider_logs() {
   local provider="$1" inject_type="$2"
-  local ssl_provider
   wait_for_log ssl-secrets-server "Registered TLS providers"
+  local ssl_provider_var="${provider}_SSL_PROVIDER"
+  local expected_provider="${!ssl_provider_var}"
+  if [ -n "$expected_provider" ]; then
+    wait_for_log ssl-secrets-server "Registered TLS providers:.*$expected_provider"
+  fi
 }
 
 # Verify that a captured pcap can be decrypted using the given keylog file.
@@ -345,5 +362,26 @@ for BC_VERSION in $BC_COMPAT_VERSIONS; do
   done
 
 done
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  IBM SDK for Java 8 (ibmjava:8): IBM J9 JVM + IBMJSSE2 provider
+#  This is the JVM used by HCL Notes 12 and similar IBM products.
+#  TLSv1.3 is not supported by IBM Java 8.
+# ══════════════════════════════════════════════════════════════════════════════
+
+run_ibm_jdk8_tests() {
+  echo -e "\n" \
+    "=============================================\n" \
+    "   IBM SDK for Java 8 (IBMJSSE2) \n" \
+    "=============================================\n\n"
+  docker rm -f $(docker ps -qa) 2>/dev/null || true
+  docker build -f $CWD/Dockerfile.ibmjdk8 $CWD -t ssl-secrets-server
+
+  local marker="${IBMJSSE2_MARKER}"
+  start_server "$DEFAULT_CP" "IBMJSSE2"
+  run_proto_test "TLSv1.2" "$DEFAULT_CP" "IBMJSSE2" "$marker"
+}
+
+run_ibm_jdk8_tests
 
 docker rm -f ssl-secrets-server

@@ -1,0 +1,2 @@
+FROM ibmjava:8
+VOLUME /secrets /project

@@ -176,7 +176,9 @@ public class AgentMain {
         log.info("Registered TLS providers: " + Java6Compat.join(", ", names));
 
         String activeSslProvider = sslProviders[0].getName();
-        if (!activeSslProvider.equals("SunJSSE") && !activeSslProvider.equals("BCJSSE")) {
+        if (!activeSslProvider.equals("SunJSSE")
+                && !activeSslProvider.equals("BCJSSE")
+                && !activeSslProvider.equals("IBMJSSE2")) {
             log.warning(
                     "TLS provider '"
                             + activeSslProvider

@@ -141,7 +141,16 @@ public class AgentAttach {
             AgentAttach.class.getClassLoader().loadClass("com.sun.tools.attach.VirtualMachine");
             return true;
         } catch (ClassNotFoundException e) {
-            return false;
+            // IBM Java 8 ships its own attach API under com.ibm.tools.attach.
+            // IBM's tools.jar also provides com.sun.tools.attach as a wrapper,
+            // so AttachHelper (which uses com.sun.tools.attach) works once
+            // tools.jar is on the classpath.
+            try {
+                AgentAttach.class.getClassLoader().loadClass("com.ibm.tools.attach.VirtualMachine");
+                return true;
+            } catch (ClassNotFoundException e2) {
+                return false;
+            }
         }
     }
 }

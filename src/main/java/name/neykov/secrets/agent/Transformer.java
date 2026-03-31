@@ -19,6 +19,7 @@ import javassist.NotFoundException;
 public class Transformer implements ClassFileTransformer {
     private static final Logger log = Logger.getLogger(Transformer.class.getName());
     private static final AtomicBoolean bcjsseLogged = new AtomicBoolean(false);
+    private static final AtomicBoolean ibmjsse2Logged = new AtomicBoolean(false);
 
     private static void logBcjsseDetected() {
         if (bcjsseLogged.compareAndSet(false, true)) {
@@ -27,6 +28,12 @@ public class Transformer implements ClassFileTransformer {
                     "BouncyCastle JSSE (BCJSSE) detected and instrumented"
                             + (version != null ? ", version " + version : "")
                             + ".");
+        }
+    }
+
+    private static void logIbmJsse2Detected() {
+        if (ibmjsse2Logged.compareAndSet(false, true)) {
+            log.info("IBM JSSE2 detected and instrumented.");
         }
     }
 
@@ -161,13 +168,39 @@ public class Transformer implements ClassFileTransformer {
         }
     }
 
+    // IBM Java 8's JSSE2 provider classes are obfuscated; the stable hook is the
+    // TlsKeyMaterialGenerator in the crypto layer, which holds both the master
+    // secret and the client random in its TlsKeyMaterialParameterSpec field.
+    // Multiple provider implementations exist (IBMJCEPlus, IBMJCE, FIPS, PKCS11);
+    // the callback resolves the spec field via reflection so a single injected
+    // expression covers all of them.
+    private static class IbmKeyMaterialInjectCallback extends InjectCallback {
+        public IbmKeyMaterialInjectCallback() {
+            super(
+                    "com.ibm.crypto.plus.provider.TlsKeyMaterialGenerator",
+                    "com.ibm.crypto.provider.TlsKeyMaterialGenerator",
+                    "com.ibm.crypto.fips.provider.TlsKeyMaterialGenerator",
+                    "com.ibm.crypto.pkcs11impl.provider.PKCS11TlsKeyMaterialGenerator");
+        }
+
+        @Override
+        protected void instrumentClass(CtClass instrumentedClass)
+                throws CannotCompileException, NotFoundException {
+            String cb = MasterSecretCallback.class.getName();
+            CtMethod method = instrumentedClass.getDeclaredMethod("engineGenerateKey");
+            method.insertBefore(cb + ".onIbmKeyMaterial((java.lang.Object)this);");
+            logIbmJsse2Detected();
+        }
+    }
+
     private static final InjectCallback[] TRANSFORMERS =
             new InjectCallback[] {
                 new SessionInjectCallback(),
                 new HandshakerInjectCallback(),
                 new SSLTrafficKeyDerivation(),
                 new BcTlsProtocolInjectCallback(),
-                new BcTlsUtilsInjectCallback()
+                new BcTlsUtilsInjectCallback(),
+                new IbmKeyMaterialInjectCallback()
             };
 
     @Override

@@ -4,6 +4,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.security.Key;
 import java.text.SimpleDateFormat;
 import java.util.Collections;
@@ -172,6 +173,37 @@ public class MasterSecretCallback {
                     "EXPORTER_SECRET " + clientRandom + " " + exporterSecret);
         } catch (Exception e) {
             log.log(Level.WARNING, "Error retrieving BCJSSE TLS 1.3 application secrets", e);
+        }
+    }
+
+    // IBM Java 8 JSSE2 uses obfuscated internal classes; the stable hook is the
+    // TlsKeyMaterialGenerator. It holds a TlsKeyMaterialParameterSpec field that
+    // exposes getClientRandom() and getMasterSecret(). The field name is
+    // obfuscated and differs across provider implementations, so we scan
+    // declared fields by type rather than hardcoding a name.
+    @SuppressWarnings("unused")
+    public static void onIbmKeyMaterial(Object generator) {
+        try {
+            Object spec = null;
+            for (java.lang.reflect.Field f : generator.getClass().getDeclaredFields()) {
+                if (f.getType().getName().endsWith("TlsKeyMaterialParameterSpec")) {
+                    f.setAccessible(true);
+                    spec = f.get(generator);
+                    break;
+                }
+            }
+            if (spec == null) {
+                return;
+            }
+            Method getClientRandom = spec.getClass().getMethod("getClientRandom");
+            Method getMasterSecret = spec.getClass().getMethod("getMasterSecret");
+            byte[] clientRandom = (byte[]) getClientRandom.invoke(spec);
+            Key masterSecret = (Key) getMasterSecret.invoke(spec);
+            String clientRandomHex = bytesToHex(clientRandom);
+            String masterKeyHex = bytesToHex(masterSecret.getEncoded());
+            write("CLIENT_RANDOM " + clientRandomHex + " " + masterKeyHex);
+        } catch (Exception e) {
+            log.log(Level.WARNING, "Error retrieving IBM JSSE2 master secret.", e);
         }
     }
 
