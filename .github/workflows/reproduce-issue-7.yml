@@ -1,6 +1,10 @@
 name: Reproduce Issue 7 - WindowsAttachProvider could not be instantiated
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - claude/reproduce-issue-7-Qj92G
 
 jobs:
 
