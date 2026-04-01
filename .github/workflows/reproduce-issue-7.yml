@@ -92,11 +92,13 @@ jobs:
       - name: Build unfixed jar
         run: mvn -B package -DskipTests
 
-      - name: Create JRE copy without attach.dll; remove from JDK bin
+      - name: Create JRE copy without attach.dll
         shell: pwsh
         run: |
-          # 1. Copy $JAVA_HOME\jre so we have a java.exe whose sun.boot.library.path
-          #    (= copy's bin/) does not contain attach.dll.
+          # Copy $JAVA_HOME\jre so we have a java.exe whose sun.boot.library.path
+          # (= copy's bin/) does not contain attach.dll.
+          # JAVA_HOME remains on the original JDK so tools.jar and the fix's
+          # fallback path ($JAVA_HOME/jre/bin/attach.dll) are both intact.
           $src = "$env:JAVA_HOME_JDK\jre"
           $dst = "$env:TEMP\jre-no-attach"
           Write-Host "Copying $src -> $dst ..."
@@ -105,43 +107,25 @@ jobs:
           Write-Host "Removed attach.dll from JRE copy."
           echo "JRE_NO_ATTACH=$dst" >> $env:GITHUB_ENV
 
-          # 2. Also remove attach.dll from $JAVA_HOME\bin.
-          #    That directory is on PATH, so on Windows it ends up in java.library.path.
-          #    If we leave it there, System.loadLibrary("attach") finds a different
-          #    (incomplete) attach.dll from bin\ — not the full jre\bin version —
-          #    which loads but then fails on tempPath() with UnsatisfiedLinkError
-          #    instead of the ServiceConfigurationError we want to reproduce.
-          #    We keep $JAVA_HOME\jre\bin\attach.dll intact for the fix's fallback.
-          $jdkBinAttach = "$env:JAVA_HOME_JDK\bin\attach.dll"
-          if (Test-Path $jdkBinAttach) {
-            Remove-Item $jdkBinAttach -Force
-            Write-Host "Removed attach.dll from JDK bin\ (was on PATH)."
-          } else {
-            Write-Host "No attach.dll in JDK bin\ — nothing to remove."
-          }
-
-          Write-Host ""
           Write-Host "Final state:"
-          Write-Host "  JRE copy bin\attach.dll : $(Test-Path "$dst\bin\attach.dll")"
-          Write-Host "  JDK bin\attach.dll      : $(Test-Path "$jdkBinAttach")"
-          Write-Host "  JDK jre\bin\attach.dll  : $(Test-Path "$env:JAVA_HOME_JDK\jre\bin\attach.dll")"
+          Write-Host "  JRE copy bin\attach.dll    : $(Test-Path "$dst\bin\attach.dll")"
+          Write-Host "  JDK jre\bin\attach.dll     : $(Test-Path "$env:JAVA_HOME_JDK\jre\bin\attach.dll")"
 
       - name: Run unfixed jar with no-attach JRE java.exe
         shell: pwsh
         run: |
-          # JAVA_HOME must point to JDK so AgentAttach can find tools.jar.
-          # We run with the copied JRE's java.exe which has no attach.dll in
-          # its sun.boot.library.path.
+          # sun.boot.library.path = JRE-copy bin (no attach.dll, controls sys_paths).
+          # -Djava.library.path=.  overrides the PATH-derived java.library.path so that
+          # usr_paths is just "." (current dir, no attach.dll).
+          # Together these ensure System.loadLibrary("attach") finds nothing, reproducing
+          # the issue regardless of whatever else is on PATH.
           $env:JAVA_HOME = $env:JAVA_HOME_JDK
           $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
           Write-Host "java.exe : $env:JRE_NO_ATTACH\bin\java.exe"
           Write-Host "JAVA_HOME: $env:JAVA_HOME"
-          & "$env:JRE_NO_ATTACH\bin\java.exe" -jar $jar.FullName list 2>&1 |
+          & "$env:JRE_NO_ATTACH\bin\java.exe" "-Djava.library.path=." -jar $jar.FullName list 2>&1 |
             Tee-Object -FilePath output-unfixed.txt
           Write-Host "Exit code: $LASTEXITCODE"
-          # Reset exit code: java failure is expected here; the next step checks the output.
-          # GitHub Actions' PowerShell runner appends `exit $LASTEXITCODE` so we must
-          # clear it to prevent the step itself from failing before the assert runs.
           $LASTEXITCODE = 0
 
       - name: Assert issue #7 is reproduced
@@ -198,7 +182,7 @@ jobs:
       - name: Build fixed jar (unmodified source)
         run: mvn -B package -DskipTests
 
-      - name: Create JRE copy without attach.dll; remove from JDK bin
+      - name: Create JRE copy without attach.dll
         shell: pwsh
         run: |
           $src = "$env:JAVA_HOME_JDK\jre"
@@ -209,31 +193,18 @@ jobs:
           Write-Host "Removed attach.dll from JRE copy."
           echo "JRE_NO_ATTACH=$dst" >> $env:GITHUB_ENV
 
-          # Remove from JDK bin\ too — same reason as in reproduce job.
-          $jdkBinAttach = "$env:JAVA_HOME_JDK\bin\attach.dll"
-          if (Test-Path $jdkBinAttach) {
-            Remove-Item $jdkBinAttach -Force
-            Write-Host "Removed attach.dll from JDK bin\ (was on PATH)."
-          }
-
           Write-Host "Final state:"
           Write-Host "  JRE copy bin\attach.dll : $(Test-Path "$dst\bin\attach.dll")"
-          Write-Host "  JDK bin\attach.dll      : $(Test-Path "$jdkBinAttach")"
           Write-Host "  JDK jre\bin\attach.dll  : $(Test-Path "$env:JAVA_HOME_JDK\jre\bin\attach.dll")"
 
       - name: Verify preconditions
         shell: pwsh
         run: |
           $jdkJreAttach = "$env:JAVA_HOME_JDK\jre\bin\attach.dll"
-          $jdkBinAttach = "$env:JAVA_HOME_JDK\bin\attach.dll"
           $fakeAttach   = "$env:JRE_NO_ATTACH\bin\attach.dll"
           $fail = $false
           if (-not (Test-Path $jdkJreAttach)) {
             Write-Error "Precondition FAILED: JDK jre\bin has no attach.dll at $jdkJreAttach"
-            $fail = $true
-          }
-          if (Test-Path $jdkBinAttach) {
-            Write-Error "Precondition FAILED: attach.dll still in JDK bin\ at $jdkBinAttach (on PATH — would be found before fix)"
             $fail = $true
           }
           if (Test-Path $fakeAttach) {
@@ -242,22 +213,24 @@ jobs:
           }
           if ($fail) { exit 1 }
           Write-Host "Preconditions OK:"
-          Write-Host "  JDK jre\bin\attach.dll present : $jdkJreAttach"
-          Write-Host "  JDK bin\attach.dll absent (not on PATH)"
-          Write-Host "  Copied JRE bin\attach.dll absent"
+          Write-Host "  JDK jre\bin\attach.dll present (fix fallback target)"
+          Write-Host "  Copied JRE bin\attach.dll absent (sys_paths will miss it)"
 
       - name: Run fixed jar with no-attach JRE java.exe
         shell: pwsh
         run: |
+          # Same isolation as reproduce job:
+          #   sun.boot.library.path = JRE-copy bin (no attach.dll)
+          #   -Djava.library.path=. overrides PATH-based java.library.path
+          # The fix's loadAttachLibrary() catches the UnsatisfiedLinkError and
+          # falls back to System.load($JAVA_HOME/jre/bin/attach.dll).
           $env:JAVA_HOME = $env:JAVA_HOME_JDK
           $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
           Write-Host "java.exe : $env:JRE_NO_ATTACH\bin\java.exe"
           Write-Host "JAVA_HOME: $env:JAVA_HOME"
-          & "$env:JRE_NO_ATTACH\bin\java.exe" -jar $jar.FullName list 2>&1 |
+          & "$env:JRE_NO_ATTACH\bin\java.exe" "-Djava.library.path=." -jar $jar.FullName list 2>&1 |
             Tee-Object -FilePath output-fixed.txt
           Write-Host "Exit code: $LASTEXITCODE"
-          # Reset so the step doesn't fail due to the PowerShell runner's exit-code check.
-          # The actual success/failure is determined by the next assert step.
           $LASTEXITCODE = 0
 
       - name: Assert fix works
