@@ -1,16 +1,30 @@
 name: Verify Fix for Issue 7 - WindowsAttachProvider could not be instantiated
 
 # Root cause of issue #7:
-#   ClassLoader.loadLibrary() searches sys_paths (from sun.boot.library.path) FIRST,
-#   then usr_paths (from java.library.path).  On JDK 8 Temurin the JVM always sets
-#   sun.boot.library.path = jre\bin at startup (overriding any -D flag), so
-#   System.loadLibrary("attach") always succeeds via sys_paths.
+#   When running the jar with a JRE (not a full JDK), the JRE does not include
+#   attach.dll.  When VirtualMachine.list() triggers WindowsAttachProvider class
+#   initialization, it calls System.loadLibrary("attach") which fails with
+#   UnsatisfiedLinkError.  Inside a ServiceLoader scan this becomes:
+#     java.util.ServiceConfigurationError:
+#       com.sun.tools.attach.spi.AttachProvider:
+#         Provider com.sun.tools.attach.WindowsAttachProvider could not be instantiated
 #
-# To isolate the failure we null ClassLoader.sys_paths via reflection inside the
-# running code, and set sun.boot.library.path="." so the next loadLibrary call
-# re-initialises both search paths from ".".  This faithfully simulates Oracle JDK 8
-# or any environment where jre\bin is absent from every search path.
-# Java snippets are base64-encoded to avoid YAML parsing issues with special chars.
+# The fix (loadAttachLibrary() called before VirtualMachine.list()) proactively
+# loads attach.dll from JAVA_HOME/jre/bin before WindowsAttachProvider can fail.
+# JAVA_HOME is expected to point to the JDK whose jre/bin contains attach.dll.
+#
+# Reproduction strategy (no in-process manipulation):
+#   1. Build with JDK 8 Temurin.
+#   2. Run the jar with Temurin JRE 8 java.exe — the JRE does not ship attach.dll.
+#   3. Set JAVA_HOME to the JDK 8 installation so tools.jar and the fix's
+#      JAVA_HOME/jre/bin/attach.dll fallback are both available.
+#
+#   Without fix: WindowsAttachProvider static initializer calls
+#                System.loadLibrary("attach"), finds nothing on the JRE's paths,
+#                and throws ServiceConfigurationError.
+#   With fix:    loadAttachLibrary() catches UnsatisfiedLinkError and loads
+#                attach.dll from $JAVA_HOME/jre/bin (the JDK), then
+#                VirtualMachine.list() succeeds.
 
 on:
   workflow_dispatch:
@@ -20,248 +34,239 @@ on:
 
 jobs:
 
-  layout-probe:
+  # ─── probe ──────────────────────────────────────────────────────────────────
+  # Inspect the JDK / JRE layouts used in the other jobs so failures are easy
+  # to diagnose without re-running the full workflow.
+  probe-environment:
     runs-on: windows-latest
     steps:
-      - uses: actions/setup-java@v4
-        with:
-          java-version: 8
-          distribution: temurin
-
-      - name: Print JDK layout and library paths
-        shell: pwsh
-        run: |
-          Write-Host "JAVA_HOME: $env:JAVA_HOME"
-          Write-Host ""
-          Write-Host "attach.dll locations:"
-          Write-Host "  jre\bin\attach.dll : $(Test-Path "$env:JAVA_HOME\jre\bin\attach.dll")"
-          Write-Host "  bin\attach.dll     : $(Test-Path "$env:JAVA_HOME\bin\attach.dll")"
-          Write-Host ""
-          Write-Host "JVM property settings:"
-          java -XshowSettings:property -version 2>&1 | Select-String "library.path"
-
-  verify-fix-windows-attach-dll:
-    runs-on: windows-latest
-    needs: layout-probe
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up JDK 11 for build
-        uses: actions/setup-java@v4
-        with:
-          java-version: 11
-          distribution: temurin
-
-      - name: Patch loadAttachLibrary() to clear sys_paths before loadLibrary
-        shell: pwsh
-        run: |
-          # Decode the Java snippet from base64 to avoid YAML escaping issues.
-          # The snippet nulls ClassLoader.sys_paths and sets sun.boot.library.path="."
-          # so the next System.loadLibrary("attach") re-reads both paths as ".",
-          # where attach.dll is absent, forcing the JAVA_HOME fallback to fire.
-          $b64 = "ICAgICAgICAvLyBbdGVzdCBwYXRjaF0gTnVsbCBDbGFzc0xvYWRlci5zeXNfcGF0aHMgc28gdGhlIG5leHQgbG9hZExpYnJhcnkgcmUtcmVhZHMKICAgICAgICAvLyBzdW4uYm9vdC5saWJyYXJ5LnBhdGggZnJvbSB0aGUgcHJvcGVydHkgd2Ugb3ZlcnJpZGUgdG8gIi4iLgogICAgICAgIHRyeSB7CiAgICAgICAgICAgIGphdmEubGFuZy5yZWZsZWN0LkZpZWxkIHN5c3AgPSBDbGFzc0xvYWRlci5jbGFzcy5nZXREZWNsYXJlZEZpZWxkKCJzeXNfcGF0aHMiKTsKICAgICAgICAgICAgc3lzcC5zZXRBY2Nlc3NpYmxlKHRydWUpOwogICAgICAgICAgICBzeXNwLnNldChudWxsLCBudWxsKTsKICAgICAgICAgICAgU3lzdGVtLnNldFByb3BlcnR5KCJzdW4uYm9vdC5saWJyYXJ5LnBhdGgiLCAiLiIpOwogICAgICAgIH0gY2F0Y2ggKEV4Y2VwdGlvbiBpZ25vcmVkKSB7fQoK"
-          $snippet = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
-
-          $file = "src\main\java\name\neykov\secrets\AttachHelper.java"
-          $content = Get-Content $file -Raw
-          $patched = $content -replace "(private static void loadAttachLibrary\(\) throws FailureMessageException \{)", "`$1`n$snippet"
-          if ($patched -eq $content) {
-            Write-Error "Regex did not match loadAttachLibrary() — patch failed"
-            exit 1
-          }
-          Set-Content $file $patched -NoNewline
-          Write-Host "Patched: sys_paths clearing injected into loadAttachLibrary()."
-
-      - name: Build patched jar (skip integration tests)
-        run: mvn -B package -DskipTests
-
-      - name: Set up JDK 8 Temurin for attach test
+      - name: Set up JDK 8 (Temurin)
         uses: actions/setup-java@v4
         with:
           java-version: 8
           distribution: temurin
 
-      - name: Verify precondition — attach.dll exists in jre\bin
+      - name: Save JDK 8 path
         shell: pwsh
-        run: |
-          if (-not (Test-Path "$env:JAVA_HOME\jre\bin\attach.dll")) {
-            Write-Error "Precondition failed: attach.dll not found at $env:JAVA_HOME\jre\bin\attach.dll"
-            exit 1
-          }
-          Write-Host "Precondition met: attach.dll at $env:JAVA_HOME\jre\bin\attach.dll"
+        run: echo "JAVA_HOME_JDK=$env:JAVA_HOME" >> $env:GITHUB_ENV
 
-      - name: Run 'list' with java.library.path=. (usr_paths also forced to .)
-        shell: pwsh
-        run: |
-          $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
-          Write-Host "Running fixed jar. sys_paths cleared in code; java.library.path=. via -D."
-          java "-Djava.library.path=." -jar $jar.FullName list 2>&1 |
-            Tee-Object -FilePath output.txt
-          Write-Host "Exit code: $LASTEXITCODE"
-
-      - name: Assert fix works — fallback fires, no ServiceConfigurationError
-        shell: pwsh
-        run: |
-          $output = Get-Content output.txt -Raw
-          Write-Host "--- output ---"
-          Write-Host $output
-          Write-Host "--- end ---"
-
-          if ($output -match "WindowsAttachProvider could not be instantiated") {
-            Write-Error "FAIL: ServiceConfigurationError present — fix did not prevent issue #7"
-            exit 1
-          }
-          if ($output -match "Failed loading attach provider") {
-            Write-Error "FAIL: Fix could not load attach.dll via JAVA_HOME fallback"
-            exit 1
-          }
-          if ($output -notmatch "Loaded attach") {
-            Write-Error "FAIL: 'Loaded attach' not in output — sys_paths clearing did not work or fix fallback did not fire"
-            exit 1
-          }
-          Write-Host "PASS: Fix activated — attach.dll loaded via JAVA_HOME/jre/bin fallback."
-
-      - name: Upload output for inspection
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Set up JRE 8 (Temurin)
+        uses: actions/setup-java@v4
         with:
-          name: fix-verified-output
-          path: output.txt
+          java-version: 8
+          distribution: temurin
+          package-type: jre
 
+      - name: Print JDK and JRE layouts
+        shell: pwsh
+        run: |
+          Write-Host "=== JDK 8 layout ==="
+          Write-Host "  JAVA_HOME_JDK          : $env:JAVA_HOME_JDK"
+          Write-Host "  jre\bin\attach.dll     : $(Test-Path "$env:JAVA_HOME_JDK\jre\bin\attach.dll")"
+          Write-Host "  bin\attach.dll         : $(Test-Path "$env:JAVA_HOME_JDK\bin\attach.dll")"
+          Write-Host "  lib\tools.jar          : $(Test-Path "$env:JAVA_HOME_JDK\lib\tools.jar")"
+          Write-Host ""
+          Write-Host "=== JRE 8 layout ==="
+          Write-Host "  JAVA_HOME (JRE)        : $env:JAVA_HOME"
+          Write-Host "  bin\attach.dll         : $(Test-Path "$env:JAVA_HOME\bin\attach.dll")"
+          Write-Host "  bin\java.exe           : $(Test-Path "$env:JAVA_HOME\bin\java.exe")"
+          Write-Host ""
+          Write-Host "=== JRE java library paths ==="
+          & "$env:JAVA_HOME\bin\java.exe" -XshowSettings:property -version 2>&1 |
+            Select-String "library.path|boot.library"
+          Write-Host ""
+          Write-Host "=== JDK java library paths ==="
+          & "$env:JAVA_HOME_JDK\bin\java.exe" -XshowSettings:property -version 2>&1 |
+            Select-String "library.path|boot.library"
+
+  # ─── reproduce-without-fix ──────────────────────────────────────────────────
+  # Demonstrate that without the fix, running with JRE java.exe triggers the
+  # ServiceConfigurationError described in issue #7.
   reproduce-without-fix:
     runs-on: windows-latest
-    needs: verify-fix-windows-attach-dll
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 11 for build
-        uses: actions/setup-java@v4
-        with:
-          java-version: 11
-          distribution: temurin
-
-      - name: Patch — remove loadAttachLibrary() guard and clear sys_paths in list()
-        shell: pwsh
-        run: |
-          $b64 = "ICAgICAgICB0cnkgewogICAgICAgICAgICBqYXZhLmxhbmcucmVmbGVjdC5GaWVsZCBzeXNwID0gQ2xhc3NMb2FkZXIuY2xhc3MuZ2V0RGVjbGFyZWRGaWVsZCgic3lzX3BhdGhzIik7CiAgICAgICAgICAgIHN5c3Auc2V0QWNjZXNzaWJsZSh0cnVlKTsKICAgICAgICAgICAgc3lzcC5zZXQobnVsbCwgbnVsbCk7CiAgICAgICAgICAgIFN5c3RlbS5zZXRQcm9wZXJ0eSgic3VuLmJvb3QubGlicmFyeS5wYXRoIiwgIi4iKTsKICAgICAgICB9IGNhdGNoIChFeGNlcHRpb24gaWdub3JlZCkge30KCg=="
-          $snippet = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
-
-          $file = "src\main\java\name\neykov\secrets\AttachHelper.java"
-          $content = Get-Content $file -Raw
-
-          # 1. Remove loadAttachLibrary() guard (the fix)
-          $patched = $content -replace "(?s)\s*if \(isWindows\(\)\) \{\s*loadAttachLibrary\(\);\s*\}", ""
-          if ($patched -eq $content) {
-            Write-Error "Regex 1 did not match — loadAttachLibrary() guard not found"
-            exit 1
-          }
-
-          # 2. Inject sys_paths clearing at start of list() so that when
-          #    VirtualMachine.list() triggers WindowsAttachProvider static init,
-          #    System.loadLibrary("attach") uses "." for both paths and fails.
-          $patched = $patched -replace "(private static String list\(\) \{)", "`$1`n$snippet"
-          if ($patched -eq $content) {
-            Write-Error "Regex 2 did not match — list() method not found"
-            exit 1
-          }
-
-          Set-Content $file $patched -NoNewline
-          Write-Host "Patched: loadAttachLibrary() removed; sys_paths clearing injected into list()."
-
-      - name: Build unfixed jar (skip integration tests)
-        run: mvn -B package -DskipTests
-
-      - name: Set up JDK 8 Temurin for attach test
+      # Build step — JDK 8 is also used as JAVA_HOME for the run step so the
+      # tools.jar path is correct.
+      - name: Set up JDK 8 (Temurin) for build
         uses: actions/setup-java@v4
         with:
           java-version: 8
           distribution: temurin
 
-      - name: Verify precondition — attach.dll exists in jre\bin
+      - name: Save JDK 8 path (JAVA_HOME will be overwritten by JRE install)
+        shell: pwsh
+        run: echo "JAVA_HOME_JDK=$env:JAVA_HOME" >> $env:GITHUB_ENV
+
+      - name: Remove loadAttachLibrary() guard to simulate the unfixed state
         shell: pwsh
         run: |
-          if (-not (Test-Path "$env:JAVA_HOME\jre\bin\attach.dll")) {
-            Write-Error "Precondition failed: attach.dll not found"
+          # Strip the three-line guard that was added as the fix:
+          #   if (isWindows()) {
+          #       loadAttachLibrary();
+          #   }
+          # This restores the code to the state that triggers issue #7.
+          $file = "src\main\java\name\neykov\secrets\AttachHelper.java"
+          $content = Get-Content $file -Raw
+          $patched = $content -replace "(?s)\s*if \(isWindows\(\)\) \{\s*loadAttachLibrary\(\);\s*\}", ""
+          if ($patched -eq $content) {
+            Write-Error "Regex did not match — loadAttachLibrary() guard not found in source"
             exit 1
           }
-          Write-Host "Precondition met."
+          Set-Content $file $patched -NoNewline
+          Write-Host "Patched: loadAttachLibrary() guard removed."
 
-      - name: Run unfixed 'list' with java.library.path=.
+      - name: Build unfixed jar
+        run: mvn -B package -DskipTests
+
+      - name: Set up JRE 8 (Temurin) — no attach.dll in bin
+        uses: actions/setup-java@v4
+        with:
+          java-version: 8
+          distribution: temurin
+          package-type: jre
+
+      - name: Save JRE 8 path
+        shell: pwsh
+        run: echo "JAVA_HOME_JRE=$env:JAVA_HOME" >> $env:GITHUB_ENV
+
+      - name: Verify precondition — JRE must NOT have attach.dll
         shell: pwsh
         run: |
-          $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
-          Write-Host "Running UNFIXED jar. loadAttachLibrary() removed; sys_paths cleared in list(); java.library.path=. via -D."
-          java "-Djava.library.path=." -jar $jar.FullName list 2>&1 |
-            Tee-Object -FilePath output-unfixed.txt
-          Write-Host "Exit code: $LASTEXITCODE"
+          Write-Host "JRE path: $env:JAVA_HOME_JRE"
+          if (Test-Path "$env:JAVA_HOME_JRE\bin\attach.dll") {
+            Write-Error "Precondition FAILED: Temurin JRE 8 has attach.dll at $env:JAVA_HOME_JRE\bin\attach.dll"
+            Write-Error "attach.dll must be absent from the JRE for the issue to reproduce naturally."
+            exit 1
+          }
+          Write-Host "Precondition OK: JRE has no attach.dll — System.loadLibrary('attach') will fail."
 
-      - name: Assert issue #7 is reproduced
+      - name: Run unfixed jar with JRE java.exe
+        shell: pwsh
+        run: |
+          # JAVA_HOME must point to the JDK so AgentAttach can locate tools.jar.
+          # The jar is executed with the JRE's java.exe whose sun.boot.library.path
+          # is the JRE bin directory, which has no attach.dll.
+          $env:JAVA_HOME = $env:JAVA_HOME_JDK
+          $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
+          Write-Host "JRE java  : $env:JAVA_HOME_JRE\bin\java.exe"
+          Write-Host "JAVA_HOME : $env:JAVA_HOME (JDK, needed for tools.jar)"
+          & "$env:JAVA_HOME_JRE\bin\java.exe" -jar $jar.FullName list 2>&1 |
+            Tee-Object -FilePath output-unfixed.txt
+          Write-Host "Exit code : $LASTEXITCODE"
+
+      - name: Assert issue #7 reproduced — ServiceConfigurationError expected
         shell: pwsh
         run: |
           $output = Get-Content output-unfixed.txt -Raw
           Write-Host "--- output ---"
           Write-Host $output
           Write-Host "--- end ---"
-
           if ($output -match "WindowsAttachProvider could not be instantiated") {
             Write-Host "PASS: Issue #7 reproduced — ServiceConfigurationError confirmed without the fix."
           } else {
-            Write-Error "Expected ServiceConfigurationError was NOT produced. See output above."
+            Write-Error "FAIL: Expected 'WindowsAttachProvider could not be instantiated' was NOT produced."
+            Write-Error "The environment may not match the issue conditions. See output above."
             exit 1
           }
 
-      - name: Upload output for inspection
+      - name: Upload output
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: reproduce-unfixed-output
           path: output-unfixed.txt
 
-  workaround-sanity-check:
+  # ─── verify-fix ─────────────────────────────────────────────────────────────
+  # Demonstrate that the fix resolves the issue in the same JRE-without-attach.dll
+  # environment.
+  verify-fix:
     runs-on: windows-latest
     needs: reproduce-without-fix
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK 11 for build
-        uses: actions/setup-java@v4
-        with:
-          java-version: 11
-          distribution: temurin
-
-      - name: Patch — remove loadAttachLibrary() guard and clear sys_paths in list()
-        shell: pwsh
-        run: |
-          $b64 = "ICAgICAgICB0cnkgewogICAgICAgICAgICBqYXZhLmxhbmcucmVmbGVjdC5GaWVsZCBzeXNwID0gQ2xhc3NMb2FkZXIuY2xhc3MuZ2V0RGVjbGFyZWRGaWVsZCgic3lzX3BhdGhzIik7CiAgICAgICAgICAgIHN5c3Auc2V0QWNjZXNzaWJsZSh0cnVlKTsKICAgICAgICAgICAgc3lzcC5zZXQobnVsbCwgbnVsbCk7CiAgICAgICAgICAgIFN5c3RlbS5zZXRQcm9wZXJ0eSgic3VuLmJvb3QubGlicmFyeS5wYXRoIiwgIi4iKTsKICAgICAgICB9IGNhdGNoIChFeGNlcHRpb24gaWdub3JlZCkge30KCg=="
-          $snippet = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64))
-
-          $file = "src\main\java\name\neykov\secrets\AttachHelper.java"
-          $content = Get-Content $file -Raw
-          $patched = $content -replace "(?s)\s*if \(isWindows\(\)\) \{\s*loadAttachLibrary\(\);\s*\}", ""
-          $patched = $patched -replace "(private static String list\(\) \{)", "`$1`n$snippet"
-          Set-Content $file $patched -NoNewline
-          Write-Host "Patched source (no fix, sys_paths cleared in list())."
-
-      - name: Build patched jar (skip integration tests)
-        run: mvn -B package -DskipTests
-
-      - name: Set up JDK 8 Temurin
+      - name: Set up JDK 8 (Temurin) for build + JAVA_HOME
         uses: actions/setup-java@v4
         with:
           java-version: 8
           distribution: temurin
 
-      - name: Run 'list' with explicit -Djava.library.path=jre\bin (the workaround)
+      - name: Save JDK 8 path
+        shell: pwsh
+        run: echo "JAVA_HOME_JDK=$env:JAVA_HOME" >> $env:GITHUB_ENV
+
+      - name: Build fixed jar (unmodified source — fix is already in place)
+        run: mvn -B package -DskipTests
+
+      - name: Set up JRE 8 (Temurin) — no attach.dll in bin
+        uses: actions/setup-java@v4
+        with:
+          java-version: 8
+          distribution: temurin
+          package-type: jre
+
+      - name: Save JRE 8 path
+        shell: pwsh
+        run: echo "JAVA_HOME_JRE=$env:JAVA_HOME" >> $env:GITHUB_ENV
+
+      - name: Verify preconditions
         shell: pwsh
         run: |
-          $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
-          $jreBin = "$env:JAVA_HOME\jre\bin"
-          Write-Host "Running with -Djava.library.path=$jreBin and sys_paths cleared in code."
-          Write-Host "sys_paths=[.]; usr_paths=[jre\bin] -> attach.dll found via usr_paths."
-          $output = java "-Djava.library.path=$jreBin" -jar $jar.FullName list 2>&1 | Out-String
-          Write-Host $output
-          if ($output -match "WindowsAttachProvider could not be instantiated") {
-            Write-Error "FAIL: Workaround did not work — ServiceConfigurationError still present"
+          $jdkAttach = "$env:JAVA_HOME_JDK\jre\bin\attach.dll"
+          $jreAttach = "$env:JAVA_HOME_JRE\bin\attach.dll"
+          if (-not (Test-Path $jdkAttach)) {
+            Write-Error "Precondition FAILED: JDK has no attach.dll at $jdkAttach"
             exit 1
           }
-          Write-Host "PASS: Workaround confirmed — explicit -Djava.library.path=jre\bin resolves the issue."
+          if (Test-Path $jreAttach) {
+            Write-Error "Precondition FAILED: JRE has attach.dll at $jreAttach — fix scenario requires JRE without it"
+            exit 1
+          }
+          Write-Host "Preconditions OK:"
+          Write-Host "  JDK has attach.dll : $jdkAttach"
+          Write-Host "  JRE has no attach.dll (bin\attach.dll absent)"
+
+      - name: Run fixed jar with JRE java.exe (JAVA_HOME=JDK)
+        shell: pwsh
+        run: |
+          # JAVA_HOME points to JDK so:
+          #   - AgentAttach finds tools.jar at $JAVA_HOME/lib/tools.jar
+          #   - loadAttachLibrary() fallback finds attach.dll at $JAVA_HOME/jre/bin/attach.dll
+          $env:JAVA_HOME = $env:JAVA_HOME_JDK
+          $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
+          Write-Host "JRE java  : $env:JAVA_HOME_JRE\bin\java.exe"
+          Write-Host "JAVA_HOME : $env:JAVA_HOME (JDK)"
+          & "$env:JAVA_HOME_JRE\bin\java.exe" -jar $jar.FullName list 2>&1 |
+            Tee-Object -FilePath output-fixed.txt
+          Write-Host "Exit code : $LASTEXITCODE"
+
+      - name: Assert fix works — no ServiceConfigurationError, attach.dll loaded
+        shell: pwsh
+        run: |
+          $output = Get-Content output-fixed.txt -Raw
+          Write-Host "--- output ---"
+          Write-Host $output
+          Write-Host "--- end ---"
+
+          if ($output -match "WindowsAttachProvider could not be instantiated") {
+            Write-Error "FAIL: ServiceConfigurationError still present — fix did not prevent issue #7"
+            exit 1
+          }
+          if ($output -match "Failed loading attach provider") {
+            Write-Error "FAIL: Fix could not find attach.dll via JAVA_HOME fallback"
+            exit 1
+          }
+          if ($output -notmatch "Loaded attach") {
+            Write-Error "FAIL: 'Loaded attach' not found — fix fallback did not fire or failed silently"
+            exit 1
+          }
+          Write-Host "PASS: Fix worked — attach.dll loaded via JAVA_HOME/jre/bin fallback, no ServiceConfigurationError."
+
+      - name: Upload output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fix-verified-output
+          path: output-fixed.txt
