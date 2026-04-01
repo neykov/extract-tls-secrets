@@ -1,4 +1,4 @@
-name: Reproduce Issue 7 - WindowsAttachProvider could not be instantiated
+name: Verify Fix for Issue 7 - WindowsAttachProvider could not be instantiated
 
 on:
   workflow_dispatch:
@@ -31,7 +31,7 @@ jobs:
           Write-Host "PATH entries:"
           ($env:PATH -split ';') | ForEach-Object { Write-Host "  $_" }
 
-  reproduce-windows-attach-dll:
+  verify-fix-windows-attach-dll:
     runs-on: windows-latest
     needs: layout-probe
     steps:
@@ -100,15 +100,21 @@ jobs:
           Write-Host "--- end ---"
           $output | Out-File -FilePath output.txt
 
-      - name: Assert expected failure is reproduced
+      - name: Assert fix works — fallback path taken, no ServiceConfigurationError
         shell: pwsh
         run: |
           $output = Get-Content output.txt -Raw
-          if ($output -notmatch 'WindowsAttachProvider could not be instantiated') {
-            Write-Error "Expected ServiceConfigurationError was not produced — issue is not reproduced"
+          # The fix in AttachHelper.tryLoadLibrary() should find attach.dll relative
+          # to JAVA_HOME and print "Loaded attach <absolute-path>" before listing processes.
+          if ($output -notmatch 'Loaded attach') {
+            Write-Error "Fix did not activate — 'Loaded attach' not found in output. attach.dll fallback was not taken."
             exit 1
           }
-          Write-Host "Issue #7 successfully reproduced."
+          if ($output -match 'WindowsAttachProvider could not be instantiated') {
+            Write-Error "ServiceConfigurationError still present — fix did not prevent the issue."
+            exit 1
+          }
+          Write-Host "Fix verified: attach.dll loaded via JAVA_HOME fallback, no ServiceConfigurationError."
 
       - name: Upload output for inspection
         if: always()
@@ -119,7 +125,7 @@ jobs:
 
   workaround-sanity-check:
     runs-on: windows-latest
-    needs: reproduce-windows-attach-dll
+    needs: verify-fix-windows-attach-dll
     steps:
       - uses: actions/checkout@v4
 
