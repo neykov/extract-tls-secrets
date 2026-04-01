@@ -2,11 +2,18 @@ name: Verify Fix for Issue 7 - WindowsAttachProvider could not be instantiated
 
 # Root cause of issue #7:
 #   When attach.dll is absent from every path that System.loadLibrary("attach")
-#   searches (sun.boot.library.path and java.library.path), the first call to
-#   VirtualMachine.list() causes WindowsAttachProvider's static initializer to
-#   throw UnsatisfiedLinkError inside a ServiceLoader scan, which becomes:
-#     java.util.ServiceConfigurationError:
-#       Provider com.sun.tools.attach.WindowsAttachProvider could not be instantiated
+#   searches (sun.boot.library.path and java.library.path), VirtualMachine.list()
+#   fails.  The exact error depends on the JDK flavour:
+#
+#   Oracle JDK 8: WindowsAttachProvider has a static System.loadLibrary("attach")
+#     -> class initialisation fails -> ServiceLoader converts to ServiceConfigurationError:
+#        "Provider sun.tools.attach.WindowsAttachProvider could not be instantiated"
+#
+#   Temurin/OpenJDK 8: WindowsAttachProvider has no static library load. attach.dll
+#     is loaded lazily by WindowsVirtualMachine.  tempPath() is a native method on
+#     WindowsAttachProvider called during listVirtualMachines() BEFORE any
+#     WindowsVirtualMachine is created, so without attach.dll it throws:
+#        UnsatisfiedLinkError: sun.tools.attach.WindowsAttachProvider.tempPath()
 #
 # The fix (loadAttachLibrary() called before VirtualMachine.list()) proactively
 # loads attach.dll, catching UnsatisfiedLinkError and falling back to
@@ -140,10 +147,23 @@ jobs:
           Write-Host "--- output ---"
           Write-Host $output
           Write-Host "--- end ---"
+          # Two manifestations depending on JDK flavour:
+          #   Oracle JDK 8:  WindowsAttachProvider has a static System.loadLibrary("attach")
+          #                  -> class init fails -> ServiceConfigurationError ("could not be instantiated")
+          #   Temurin JDK 8: WindowsAttachProvider has NO static library load; attach.dll is
+          #                  loaded lazily by WindowsVirtualMachine.  tempPath() is a native
+          #                  method called directly on WindowsAttachProvider during
+          #                  listVirtualMachines(), so with no attach.dll loaded it throws
+          #                  UnsatisfiedLinkError: ...WindowsAttachProvider.tempPath()
+          # Both confirm attach.dll is not reachable without the fix.
           if ($output -match "WindowsAttachProvider could not be instantiated") {
-            Write-Host "PASS: Issue #7 reproduced — ServiceConfigurationError confirmed without the fix."
+            Write-Host "PASS: Issue #7 reproduced (Oracle-style) — ServiceConfigurationError confirmed."
+          } elseif ($output -match "UnsatisfiedLinkError.*WindowsAttachProvider" -or
+                    $output -match "UnsatisfiedLinkError.*tempPath") {
+            Write-Host "PASS: Issue #7 reproduced (Temurin-style) — UnsatisfiedLinkError on tempPath() confirmed."
           } else {
-            Write-Error "FAIL: Expected 'WindowsAttachProvider could not be instantiated' was NOT produced."
+            Write-Error "FAIL: Neither ServiceConfigurationError nor UnsatisfiedLinkError for attach.dll detected."
+            Write-Error "attach.dll may have been found on an unexpected search path. See output above."
             exit 1
           }
 
