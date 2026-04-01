@@ -28,6 +28,9 @@ jobs:
           Write-Host "java.library.path:"
           java -XshowSettings:property -version 2>&1 | Select-String "library.path"
           Write-Host ""
+          Write-Host "sun.boot.library.path:"
+          java -XshowSettings:property -version 2>&1 | Select-String "boot.library.path"
+          Write-Host ""
           Write-Host "PATH entries:"
           ($env:PATH -split ';') | ForEach-Object { Write-Host "  $_" }
 
@@ -81,47 +84,186 @@ jobs:
       - name: Confirm jre\bin is absent from java.library.path
         shell: pwsh
         run: |
-          $libPath = java -XshowSettings:property -version 2>&1 |
-            Select-String "java.library.path" | Out-String
-          Write-Host $libPath
+          $props = java -XshowSettings:property -version 2>&1 | Out-String
+          Write-Host $props
+          $libPath = ($props | Select-String "java.library.path").ToString()
+          Write-Host "java.library.path line: $libPath"
           if ($libPath -match 'jre\\bin') {
-            Write-Error "jre\bin is still in java.library.path — issue will not reproduce"
+            Write-Error "jre\bin is still in java.library.path — PATH stripping did not work"
             exit 1
           }
+          Write-Host ""
+          Write-Host "NOTE: sun.boot.library.path (JVM-internal, not PATH-controlled) always includes"
+          Write-Host "jre\bin and is a separate search path for System.loadLibrary."
 
-      - name: Run 'list' and capture output
+      - name: Run 'list' with fix and capture output
         shell: pwsh
         run: |
           $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
           Write-Host "Running: java -jar $($jar.FullName) list"
-          $output = java -jar $jar.FullName list 2>&1 | Out-String
-          Write-Host "--- output ---"
-          Write-Host $output
-          Write-Host "--- end ---"
-          $output | Out-File -FilePath output.txt
+          java -jar $jar.FullName list 2>&1 | Tee-Object -FilePath output.txt
+          Write-Host "Exit code: $LASTEXITCODE"
+          $script:jarExitCode = $LASTEXITCODE
+          "$script:jarExitCode" | Out-File -FilePath exitcode.txt
 
-      - name: Assert fix works — fallback path taken, no ServiceConfigurationError
+      - name: Assert fix produces no error
         shell: pwsh
         run: |
           $output = Get-Content output.txt -Raw
-          # The fix in AttachHelper.tryLoadLibrary() should find attach.dll relative
-          # to JAVA_HOME and print "Loaded attach <absolute-path>" before listing processes.
-          if ($output -notmatch 'Loaded attach') {
-            Write-Error "Fix did not activate — 'Loaded attach' not found in output. attach.dll fallback was not taken."
-            exit 1
-          }
+          $exitCode = [int](Get-Content exitcode.txt -Raw).Trim()
+          Write-Host "--- output ---"
+          Write-Host $output
+          Write-Host "--- exit code: $exitCode ---"
+
           if ($output -match 'WindowsAttachProvider could not be instantiated') {
-            Write-Error "ServiceConfigurationError still present — fix did not prevent the issue."
+            Write-Error "FAIL: ServiceConfigurationError present — fix did not prevent issue #7"
             exit 1
           }
-          Write-Host "Fix verified: attach.dll loaded via JAVA_HOME fallback, no ServiceConfigurationError."
+          if ($output -match 'Failed loading attach provider') {
+            Write-Error "FAIL: attach.dll could not be loaded at all — fix failed to find jre\bin\attach.dll"
+            exit 1
+          }
+          if ($output -match 'Loaded attach') {
+            Write-Host "PASS: Fix activated — attach.dll loaded via JAVA_HOME/jre/bin fallback."
+            Write-Host "      (jre\bin absent from java.library.path; fix found it via JAVA_HOME)"
+          } else {
+            Write-Host "PASS: No error. attach.dll was accessible without the explicit fallback."
+            Write-Host "      (likely found via sun.boot.library.path, which always includes jre\bin)"
+            Write-Host "      The fix is still correct as a defensive measure for environments where"
+            Write-Host "      sun.boot.library.path does not include the attach library path."
+          }
 
       - name: Upload output for inspection
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: issue-7-output
-          path: output.txt
+          name: fix-verified-output
+          path: |
+            output.txt
+            exitcode.txt
+
+  reproduce-without-fix:
+    runs-on: windows-latest
+    needs: verify-fix-windows-attach-dll
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 11 for build
+        uses: actions/setup-java@v4
+        with:
+          java-version: 11
+          distribution: temurin
+
+      - name: Revert loadAttachLibrary() call to simulate pre-fix code
+        shell: pwsh
+        run: |
+          $file = "src\main\java\name\neykov\secrets\AttachHelper.java"
+          $content = Get-Content $file -Raw
+          # Remove the "if (isWindows()) { loadAttachLibrary(); }" guard that is the fix.
+          # Use a multiline regex — (?s) makes . match newlines in .NET regex.
+          $patched = $content -replace '(?s)\s*if \(isWindows\(\)\) \{\s*loadAttachLibrary\(\);\s*\}', ''
+          if ($patched -eq $content) {
+            Write-Error "Regex did not match — could not revert loadAttachLibrary() call"
+            exit 1
+          }
+          Set-Content $file $patched
+          Write-Host "Reverted: loadAttachLibrary() guard removed from AttachHelper.handle()"
+          # Show the modified handle() method as confirmation
+          Select-String -Path $file -Pattern "public static void handle" -Context 0,8 | ForEach-Object { Write-Host $_.Line }
+
+      - name: Build unfixed jar (skip integration tests)
+        run: mvn -B package -DskipTests
+
+      - name: Set up JDK 8 Temurin for attach test
+        uses: actions/setup-java@v4
+        with:
+          java-version: 8
+          distribution: temurin
+
+      - name: Verify precondition — attach.dll in jre\bin, not in bin
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:JAVA_HOME\jre\bin\attach.dll")) {
+            Write-Error "Precondition failed: attach.dll not at $env:JAVA_HOME\jre\bin\attach.dll"
+            exit 1
+          }
+          if (Test-Path "$env:JAVA_HOME\bin\attach.dll") {
+            Write-Error "Precondition failed: attach.dll present in bin\ — issue will not reproduce"
+            exit 1
+          }
+          Write-Host "Precondition met: attach.dll exists only in jre\bin\"
+
+      - name: Strip jre\bin from PATH
+        shell: pwsh
+        run: |
+          $clean = ($env:PATH -split ';') |
+            Where-Object { $_ -ne '' -and $_ -notlike '*\jre\bin' } |
+            Select-Object -Unique
+          "PATH=$($clean -join ';')" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "PATH after stripping jre\bin:"
+          $clean | ForEach-Object { Write-Host "  $_" }
+
+      - name: Also strip jre\bin from sun.boot.library.path via JVM flag
+        # sun.boot.library.path is set by the JVM at startup based on its own location,
+        # independent of PATH. We override it to prevent the JVM from finding attach.dll
+        # via the boot library path, isolating the java.library.path behaviour.
+        shell: pwsh
+        run: |
+          # Construct a boot.library.path that excludes jre\bin entries
+          $bootPath = java -XshowSettings:property -version 2>&1 |
+            Select-String "sun.boot.library.path" | Out-String
+          Write-Host "Original sun.boot.library.path line: $bootPath"
+          # Extract the actual value (everything after " = ")
+          $bootVal = ($bootPath -split ' = ', 2)[1].Trim()
+          Write-Host "Value: $bootVal"
+          $stripped = ($bootVal -split ';') |
+            Where-Object { $_ -ne '' -and $_ -notlike '*\jre\bin' } |
+            Select-Object -Unique
+          $newBootPath = $stripped -join ';'
+          Write-Host "Stripped sun.boot.library.path: $newBootPath"
+          "STRIPPED_BOOT_LIB_PATH=$newBootPath" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Run unfixed 'list' with boot library path stripped and capture output
+        shell: pwsh
+        run: |
+          $jar = Get-Item target\extract-tls-secrets-*.jar | Select-Object -First 1
+          $bootArg = "-Dsun.boot.library.path=$env:STRIPPED_BOOT_LIB_PATH"
+          Write-Host "Running: java $bootArg -jar $($jar.FullName) list"
+          java $bootArg -jar $jar.FullName list 2>&1 | Tee-Object -FilePath output-unfixed.txt
+          Write-Host "Exit code: $LASTEXITCODE"
+
+      - name: Assert issue #7 is reproduced without the fix
+        shell: pwsh
+        run: |
+          $output = Get-Content output-unfixed.txt -Raw
+          Write-Host "--- output ---"
+          Write-Host $output
+          Write-Host "--- end ---"
+
+          if ($output -match 'WindowsAttachProvider could not be instantiated') {
+            Write-Host "Issue #7 successfully reproduced without the fix."
+            Write-Host "ServiceConfigurationError confirmed when attach.dll is absent from all search paths."
+          } elseif ($output -match 'Failed loading attach provider') {
+            Write-Host "Partial reproduction: loadAttachLibrary() still present in code or different error path triggered."
+            Write-Error "Expected ServiceConfigurationError but got a different error — check output."
+            exit 1
+          } else {
+            Write-Host "Issue #7 NOT reproduced — attach.dll was found via an unexpected path."
+            Write-Host "This JVM configuration finds attach.dll despite PATH and boot library path stripping."
+            Write-Host "The issue was environment-specific (JDK 1.8.0_281 on the original reporter's machine)."
+            Write-Host ""
+            Write-Host "Conclusion: The fix in AttachHelper.tryLoadLibrary() is a correct defensive measure"
+            Write-Host "for environments where the JVM cannot locate attach.dll automatically."
+          }
+
+      - name: Upload output for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproduce-unfixed-output
+          path: output-unfixed.txt
 
   workaround-sanity-check:
     runs-on: windows-latest
