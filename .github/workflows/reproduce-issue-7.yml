@@ -85,22 +85,39 @@ jobs:
       - name: Build unfixed jar
         run: mvn -B package -DskipTests
 
-      - name: Create JRE copy without attach.dll
+      - name: Create JRE copy without attach.dll; remove from JDK bin
         shell: pwsh
         run: |
-          # Copy the JRE subtree so we get a working java.exe whose
-          # sun.boot.library.path is the copy's bin directory (no attach.dll).
-          # JAVA_HOME remains on the original JDK so tools.jar and the fix
-          # fallback path ($JAVA_HOME/jre/bin/attach.dll) are both intact.
+          # 1. Copy $JAVA_HOME\jre so we have a java.exe whose sun.boot.library.path
+          #    (= copy's bin/) does not contain attach.dll.
           $src = "$env:JAVA_HOME_JDK\jre"
           $dst = "$env:TEMP\jre-no-attach"
           Write-Host "Copying $src -> $dst ..."
           Copy-Item $src $dst -Recurse -Force
           Remove-Item "$dst\bin\attach.dll" -Force -ErrorAction Stop
-          Write-Host "Copy complete. attach.dll removed."
-          Write-Host "  dst\bin\attach.dll present: $(Test-Path "$dst\bin\attach.dll")"
-          Write-Host "  src\bin\attach.dll present: $(Test-Path "$src\bin\attach.dll")"
+          Write-Host "Removed attach.dll from JRE copy."
           echo "JRE_NO_ATTACH=$dst" >> $env:GITHUB_ENV
+
+          # 2. Also remove attach.dll from $JAVA_HOME\bin.
+          #    That directory is on PATH, so on Windows it ends up in java.library.path.
+          #    If we leave it there, System.loadLibrary("attach") finds a different
+          #    (incomplete) attach.dll from bin\ — not the full jre\bin version —
+          #    which loads but then fails on tempPath() with UnsatisfiedLinkError
+          #    instead of the ServiceConfigurationError we want to reproduce.
+          #    We keep $JAVA_HOME\jre\bin\attach.dll intact for the fix's fallback.
+          $jdkBinAttach = "$env:JAVA_HOME_JDK\bin\attach.dll"
+          if (Test-Path $jdkBinAttach) {
+            Remove-Item $jdkBinAttach -Force
+            Write-Host "Removed attach.dll from JDK bin\ (was on PATH)."
+          } else {
+            Write-Host "No attach.dll in JDK bin\ — nothing to remove."
+          }
+
+          Write-Host ""
+          Write-Host "Final state:"
+          Write-Host "  JRE copy bin\attach.dll : $(Test-Path "$dst\bin\attach.dll")"
+          Write-Host "  JDK bin\attach.dll      : $(Test-Path "$jdkBinAttach")"
+          Write-Host "  JDK jre\bin\attach.dll  : $(Test-Path "$env:JAVA_HOME_JDK\jre\bin\attach.dll")"
 
       - name: Run unfixed jar with no-attach JRE java.exe
         shell: pwsh
@@ -157,7 +174,7 @@ jobs:
       - name: Build fixed jar (unmodified source)
         run: mvn -B package -DskipTests
 
-      - name: Create JRE copy without attach.dll
+      - name: Create JRE copy without attach.dll; remove from JDK bin
         shell: pwsh
         run: |
           $src = "$env:JAVA_HOME_JDK\jre"
@@ -165,25 +182,45 @@ jobs:
           Write-Host "Copying $src -> $dst ..."
           Copy-Item $src $dst -Recurse -Force
           Remove-Item "$dst\bin\attach.dll" -Force -ErrorAction Stop
-          Write-Host "Copy complete. attach.dll removed from copy."
+          Write-Host "Removed attach.dll from JRE copy."
           echo "JRE_NO_ATTACH=$dst" >> $env:GITHUB_ENV
+
+          # Remove from JDK bin\ too — same reason as in reproduce job.
+          $jdkBinAttach = "$env:JAVA_HOME_JDK\bin\attach.dll"
+          if (Test-Path $jdkBinAttach) {
+            Remove-Item $jdkBinAttach -Force
+            Write-Host "Removed attach.dll from JDK bin\ (was on PATH)."
+          }
+
+          Write-Host "Final state:"
+          Write-Host "  JRE copy bin\attach.dll : $(Test-Path "$dst\bin\attach.dll")"
+          Write-Host "  JDK bin\attach.dll      : $(Test-Path "$jdkBinAttach")"
+          Write-Host "  JDK jre\bin\attach.dll  : $(Test-Path "$env:JAVA_HOME_JDK\jre\bin\attach.dll")"
 
       - name: Verify preconditions
         shell: pwsh
         run: |
-          $jdkAttach = "$env:JAVA_HOME_JDK\jre\bin\attach.dll"
-          $fakeAttach = "$env:JRE_NO_ATTACH\bin\attach.dll"
-          if (-not (Test-Path $jdkAttach)) {
-            Write-Error "Precondition FAILED: JDK has no attach.dll at $jdkAttach"
-            exit 1
+          $jdkJreAttach = "$env:JAVA_HOME_JDK\jre\bin\attach.dll"
+          $jdkBinAttach = "$env:JAVA_HOME_JDK\bin\attach.dll"
+          $fakeAttach   = "$env:JRE_NO_ATTACH\bin\attach.dll"
+          $fail = $false
+          if (-not (Test-Path $jdkJreAttach)) {
+            Write-Error "Precondition FAILED: JDK jre\bin has no attach.dll at $jdkJreAttach"
+            $fail = $true
+          }
+          if (Test-Path $jdkBinAttach) {
+            Write-Error "Precondition FAILED: attach.dll still in JDK bin\ at $jdkBinAttach (on PATH — would be found before fix)"
+            $fail = $true
           }
           if (Test-Path $fakeAttach) {
-            Write-Error "Precondition FAILED: attach.dll still present in copied JRE at $fakeAttach"
-            exit 1
+            Write-Error "Precondition FAILED: attach.dll still in copied JRE at $fakeAttach"
+            $fail = $true
           }
+          if ($fail) { exit 1 }
           Write-Host "Preconditions OK:"
-          Write-Host "  Original JDK has attach.dll : $jdkAttach"
-          Write-Host "  Copied JRE has NO attach.dll"
+          Write-Host "  JDK jre\bin\attach.dll present : $jdkJreAttach"
+          Write-Host "  JDK bin\attach.dll absent (not on PATH)"
+          Write-Host "  Copied JRE bin\attach.dll absent"
 
       - name: Run fixed jar with no-attach JRE java.exe
         shell: pwsh
