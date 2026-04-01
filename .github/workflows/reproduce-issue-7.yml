@@ -139,6 +139,10 @@ jobs:
           & "$env:JRE_NO_ATTACH\bin\java.exe" -jar $jar.FullName list 2>&1 |
             Tee-Object -FilePath output-unfixed.txt
           Write-Host "Exit code: $LASTEXITCODE"
+          # Reset exit code: java failure is expected here; the next step checks the output.
+          # GitHub Actions' PowerShell runner appends `exit $LASTEXITCODE` so we must
+          # clear it to prevent the step itself from failing before the assert runs.
+          $LASTEXITCODE = 0
 
       - name: Assert issue #7 is reproduced
         shell: pwsh
@@ -252,6 +256,9 @@ jobs:
           & "$env:JRE_NO_ATTACH\bin\java.exe" -jar $jar.FullName list 2>&1 |
             Tee-Object -FilePath output-fixed.txt
           Write-Host "Exit code: $LASTEXITCODE"
+          # Reset so the step doesn't fail due to the PowerShell runner's exit-code check.
+          # The actual success/failure is determined by the next assert step.
+          $LASTEXITCODE = 0
 
       - name: Assert fix works
         shell: pwsh
