@@ -2,6 +2,9 @@ name: Reproduce WindowsAttachProvider ServiceConfigurationError
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - claude/reproduce-issue-7-Qj92G
 
 jobs:
   reproduce:
