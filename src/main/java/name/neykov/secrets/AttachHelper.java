@@ -17,9 +17,9 @@ import com.sun.tools.attach.VirtualMachineDescriptor;
 //the API, including a fallback implementing the attach api.
 public class AttachHelper {
     public static void handle(String jarPath, String pid, String logFile) throws FailureMessageException {
-        if (isWindows()) {
-            loadAttachLibrary();
-        }
+        // if (isWindows()) {
+        //     loadAttachLibrary();
+        // }
 
         if (pid.equals("list")) {
             System.out.print(AttachHelper.list());
