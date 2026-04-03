@@ -1,0 +1,71 @@
+# Windows standalone JRE on PATH with JDK JAVA_HOME
+name: Test autodiscovery of attach.jar, attach.dll
+on:
+  workflow_dispatch:
+
+jobs:
+  autodiscovery:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK 11 (build)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Set up Temurin JDK 8 (JAVA_HOME will point here for the test)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+
+      - name: Build jar
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME_11_X64 }}
+        run: mvn package -DskipTests -q
+
+      - name: Download Temurin JRE-only archive (simulates Oracle standalone public JRE)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u442-b06/OpenJDK8U-jre_x64_windows_hotspot_8u442b06.zip"
+          Invoke-WebRequest -Uri $url -OutFile jre8.zip
+          Expand-Archive jre8.zip -DestinationPath jre8
+          $jreHome = (Get-ChildItem jre8 -Directory)[0].FullName
+          echo "STANDALONE_JRE=$jreHome" >> $env:GITHUB_ENV
+
+      - name: Confirm preconditions
+        shell: pwsh
+        run: |
+          Write-Host "Standalone JRE (simulates java.exe on PATH):"
+          Write-Host "  path       : $env:STANDALONE_JRE"
+          Write-Host "  attach.dll : $(Test-Path "$env:STANDALONE_JRE\bin\attach.dll")"
+          Write-Host ""
+          Write-Host "JDK (JAVA_HOME):"
+          Write-Host "  path       : $env:JAVA_HOME"
+          Write-Host "  tools.jar  : $(Test-Path "$env:JAVA_HOME\lib\tools.jar")"
+          Write-Host "  attach.dll : $(Test-Path "$env:JAVA_HOME\jre\bin\attach.dll")"
+
+      - name: Verify autodiscovery
+        shell: pwsh
+        # Simulates: Oracle standalone JRE on PATH, JAVA_HOME pointing to JDK.
+        # java.exe is from the standalone JRE  →  sun.boot.library.path = standalone JRE bin\
+        # Standalone JRE has no attach.dll     →  System.loadLibrary("attach") fails
+        # loadAttachLibrary() catches the error and loads from JAVA_HOME\jre\bin\attach.dll
+        run: |
+          # Strip JDK directories from PATH so java.library.path also has no attach.dll fallback
+          $env:PATH = ($env:PATH -split ';' |
+            Where-Object { $_ -notmatch 'jdk|jre|java|hostedtoolcache' }) -join ';'
+
+          Write-Host "PATH     : $env:PATH"
+
+          $java = "$env:STANDALONE_JRE\bin\java.exe"
+          $jar  = (Get-ChildItem target\extract-tls-secrets-*.jar)[0].FullName
+
+          Write-Host "java.exe : $java  (standalone JRE — no attach.dll)"
+          Write-Host "JAVA_HOME: $env:JAVA_HOME  (JDK — has tools.jar + jre\bin\attach.dll)"
+          Write-Host ""
+          & $java -jar $jar list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
