@@ -60,9 +60,15 @@ jobs:
         #   ServiceConfigurationError: com.sun.tools.attach.spi.AttachProvider:
         #     Provider sun.tools.attach.WindowsAttachProvider could not be instantiated
         run: |
+          # Remove all JDK bin directories from PATH so       java.library.path
+          # also can't find any attach.dll as a fallback
+          $env:PATH = ($env:PATH -split ';' |
+            Where-Object { $_ -notmatch 'jdk|jre|java|hostedtoolcache' }) -join ';'
+
           $java = "$env:STANDALONE_JRE\bin\java.exe"
           $jar  = (Get-ChildItem target\extract-tls-secrets-*.jar)[0].FullName
-
+          
+          Write-Host "PATH: $env:PATH"
           Write-Host "java.exe : $java  (standalone JRE - no attach.dll)"
           Write-Host "JAVA_HOME: $env:JAVA_HOME  (JDK - has tools.jar)"
           Write-Host "jar      : $jar"
