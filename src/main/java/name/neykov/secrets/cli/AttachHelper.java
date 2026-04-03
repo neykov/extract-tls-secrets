@@ -20,7 +20,7 @@ import java.io.IOException;
  */
 public class AttachHelper {
     public static void handle(String jarPath, String pid, String attachOptions)
-            throws MessageException {
+            throws FailureMessageException {
         if (pid.equals("list")) {
             System.out.print(AttachHelper.list());
         } else {
@@ -32,7 +32,7 @@ public class AttachHelper {
                         e.getMessage() != null
                                 ? e.getMessage()
                                 : "Failed attaching to java process " + pid;
-                throw new MessageException(msg);
+                throw new FailureMessageException(msg);
             }
         }
     }
