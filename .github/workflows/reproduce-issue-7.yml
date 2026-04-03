@@ -67,3 +67,33 @@ jobs:
           Write-Host ""
           java -jar $jar list
         continue-on-error: true
+
+  check-jre:
+    runs-on: windows-latest
+
+    steps:
+      - name: Download Temurin JRE-only archive (not the JDK)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u442-b06/OpenJDK8U-jre_x64_windows_hotspot_8u442b06.zip"
+          Write-Host "Downloading JRE-only zip (no JDK)..."
+          Invoke-WebRequest -Uri $url -OutFile jre8.zip
+          Expand-Archive jre8.zip -DestinationPath jre8
+
+      - name: Inspect JRE structure and check for attach.dll
+        shell: pwsh
+        run: |
+          $jre = (Get-ChildItem jre8 -Directory)[0].FullName
+          Write-Host "JRE root: $jre"
+          Write-Host ""
+          Write-Host "Top-level directories:"
+          Get-ChildItem $jre -Directory | Select-Object -ExpandProperty Name
+          Write-Host ""
+          Write-Host "DLLs in bin\:"
+          Get-ChildItem "$jre\bin\*.dll" | Select-Object Name | Sort-Object Name
+          Write-Host ""
+          Write-Host "attach.dll present : $(Test-Path "$jre\bin\attach.dll")"
+          Write-Host "tools.jar present  : $(Test-Path "$jre\lib\tools.jar")"
+          Write-Host ""
+          Write-Host "JVM library paths when running this JRE:"
+          & "$jre\bin\java.exe" -XshowSettings:property -version 2>&1 | Select-String "library.path"
