@@ -25,6 +25,9 @@ import name.neykov.secrets.Java6Compat;
 public class AgentMain {
     private static final Logger log = Logger.getLogger(AgentMain.class.getName());
 
+    private static volatile Transformer activeTransformer = null;
+    private static volatile Instrumentation attachInstr = null;
+
     // Created in process working directory
     public static final String DEFAULT_SECRETS_FILE = "ssl-master-secrets.txt";
 
@@ -39,7 +42,11 @@ public class AgentMain {
     public static void agentmain(String agentArgs, Instrumentation inst) {
         File jarFile = getJarFile();
         initClassPath(inst, jarFile);
-        attach(agentArgs, inst, jarFile);
+        if ("detach".equals(agentArgs)) {
+            detach(jarFile);
+        } else {
+            attach(agentArgs, inst, jarFile);
+        }
         reloadClasses(inst);
     }
 
@@ -144,14 +151,21 @@ public class AgentMain {
         }
     }
 
-    private static void attach(String agentArgs, Instrumentation inst, File jarFile) {
+    private static void attach(String secretsPath, Instrumentation inst, File jarFile) {
+        if (activeTransformer != null) {
+            log.warning("Already attached; ignoring attach request.");
+            return;
+        }
+
         openBaseModule(inst);
 
         // MasterSecretCallback is loaded in boot class loader
-        String canonicalSecretsPath = getCanonicalSecretsPath(agentArgs);
+        String canonicalSecretsPath = getCanonicalSecretsPath(secretsPath);
         MasterSecretCallback.setSecretsFileName(canonicalSecretsPath);
 
-        inst.addTransformer(new Transformer(), true);
+        activeTransformer = new Transformer();
+        attachInstr = inst;
+        inst.addTransformer(activeTransformer, true);
 
         logSecurityProviders();
 
@@ -161,6 +175,19 @@ public class AgentMain {
                         + ". Logging to "
                         + canonicalSecretsPath
                         + ". ");
+    }
+
+    private static void detach(File jarFile) {
+        if (activeTransformer == null) {
+            log.warning("Not attached; ignoring detach request.");
+            return;
+        }
+
+        attachInstr.removeTransformer(activeTransformer);
+        activeTransformer = null;
+        attachInstr = null;
+
+        log.info("Successfully detached agent " + jarFile + ". ");
     }
 
     private static void logSecurityProviders() {

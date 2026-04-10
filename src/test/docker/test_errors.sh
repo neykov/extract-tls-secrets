@@ -52,3 +52,28 @@ OUT=$(docker run --rm --network none \
 
 [[ "$OUT" == *"Invalid JAVA_HOME environment variable"* ]] || exit 1
 [[ "$OUT" == *"Must point to a local JDK installation containing a 'lib/tools.jar'"* ]] || exit 1
+
+# 'detach' with no PID argument
+OUT=$(docker run --rm --network none \
+  -v $ROOT:/project \
+  azul/zulu-openjdk:8 \
+  java -jar /project/$JAR_PATH detach 2>&1)
+
+[[ "$OUT" == *"'detach' action requires exactly one argument"* ]] || exit 1
+[[ "$OUT" == *"Usage"* ]] || exit 1
+
+# 'detach' with extra argument
+OUT=$(docker run --rm --network none \
+  -v $ROOT:/project \
+  azul/zulu-openjdk:8 \
+  java -jar /project/$JAR_PATH detach 1234 extra 2>&1)
+
+[[ "$OUT" == *"'detach' action requires exactly one argument"* ]] || exit 1
+
+# 'detach' against a non-existent PID
+OUT=$(docker run --rm --network none \
+  -v $ROOT:/project \
+  azul/zulu-openjdk:8 \
+  java -jar /project/$JAR_PATH detach 99999 2>&1)
+
+[[ "$OUT" == *"Failed to attach to java process 99999"* ]] || exit 1

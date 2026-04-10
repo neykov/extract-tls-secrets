@@ -30,8 +30,12 @@ public class AttachHelper {
             System.out.print(AttachHelper.list());
         } else {
             try {
-                AttachHelper.attach(pid, jarPath, attachOptions);
-                System.out.println("Successfully attached to process ID " + pid + ".");
+                AttachHelper.loadagent(pid, jarPath, attachOptions);
+                if ("detach".equals(attachOptions)) {
+                    System.out.println("Successfully detached from process ID " + pid + ".");
+                } else {
+                    System.out.println("Successfully attached to process ID " + pid + ".");
+                }
             } catch (IllegalStateException e) {
                 String msg =
                         e.getMessage() != null
@@ -42,7 +46,7 @@ public class AttachHelper {
         }
     }
 
-    private static void attach(String pid, String jarPath, String options) {
+    private static void loadagent(String pid, String jarPath, String options) {
         try {
             VirtualMachine vm = VirtualMachine.attach(pid);
             vm.loadAgent(jarPath, options);

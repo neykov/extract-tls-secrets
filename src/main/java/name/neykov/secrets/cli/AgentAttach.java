@@ -20,7 +20,10 @@ public class AgentAttach {
 
         try {
             CliArguments cliArguments = CliArguments.parse(args);
-            handle(jarUrl, jarFile, cliArguments.listOrPid, cliArguments.secretsPath);
+            String listOrPid = "list".equals(cliArguments.action) ? "list" : cliArguments.pid;
+            String attachOptions =
+                    "detach".equals(cliArguments.action) ? "detach" : cliArguments.secretsPath;
+            handle(jarUrl, jarFile, listOrPid, attachOptions);
         } catch (IllegalArgumentException e) {
             help(jarFile, e.getMessage());
             System.exit(1);
@@ -35,10 +38,14 @@ public class AgentAttach {
     private static void help(File jarFile, String message) {
         System.err.println(message + ".");
         System.out.println();
-        System.out.println("Usage: java -jar " + jarFile.getName() + " <pid> [<secrets_file>]");
+        System.out.println(
+                "Usage: java -jar " + jarFile.getName() + " attach <pid> [<secrets_file>]");
+        System.out.println("       java -jar " + jarFile.getName() + " detach <pid>");
         System.out.println("       java -jar " + jarFile.getName() + " list");
         System.out.println();
         System.out.println("Options:");
+        System.out.println("  * attach - start logging secrets for the given process");
+        System.out.println("  * detach - stop logging secrets for the given process");
         System.out.println("  * list - shows available Java processes to attach to");
         System.out.println("  * pid - the process ID to attach to (required)");
         System.out.println("  * secrets_file - file path to log the shared secrets to (optional);");

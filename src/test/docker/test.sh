@@ -143,6 +143,34 @@ check_provider_logs() {
   fi
 }
 
+# Run a single client connection without pcap or key assertions.
+run_client() {
+  local proto="$1" cp="$2" provider="$3"
+  docker run --network ssl-secrets --rm \
+    -v $ROOT:/project -v $SECRETS_VOLUME:/secrets \
+    ssl-secrets-server java -cp "$cp" \
+    -Djavax.net.ssl.trustStoreType=jks \
+    -Djavax.net.ssl.trustStore=/secrets/truststore \
+    -Djavax.net.ssl.trustStorePassword=password \
+    -Djdk.tls.client.protocols=$proto \
+    -Dprovider=$provider \
+    name.neykov.secrets.TestClient https://ssl-secrets-server/secret.txt
+}
+
+assert_has_keys() {
+  local file="$1"
+  [ -s "$file" ] || { echo "Expected keys in $file but file is empty or absent" >&2; return 1; }
+}
+
+assert_no_keys() {
+  local file="$1"
+  if [ -s "$file" ]; then
+    echo "Expected no keys in $file but file contains:" >&2
+    cat "$file" >&2
+    return 1
+  fi
+}
+
 # Verify that a captured pcap can be decrypted using the given keylog file.
 check_decryptable() {
   local keyfile="$1"
@@ -383,5 +411,134 @@ run_ibm_jdk8_tests() {
 }
 
 run_ibm_jdk8_tests
+
+docker rm -f ssl-secrets-server
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Detach/re-attach test: attach → detach → re-attach lifecycle
+#  Verifies that secrets stop being logged after detach and resume after
+#  re-attach. Also exercises the double-attach and detach-without-attach guards.
+#  Run once on a stable LTS; the detach logic is JVM-version-independent.
+# ══════════════════════════════════════════════════════════════════════════════
+
+run_detach_test() {
+  local java_version="$1"
+
+  echo -e "\n" \
+    "=============================================\n" \
+    "   Detach/re-attach - Java $java_version \n" \
+    "=============================================\n\n"
+
+  docker rm -f $(docker ps -qa) 2>/dev/null || true
+  docker build -f $CWD/Dockerfile.server $CWD -t ssl-secrets-server \
+    --build-arg JAVA_IMAGE_TAG=$java_version
+
+  local cp="$DEFAULT_CP"
+  local provider="JSSE"
+  local proto="TLSv1.2"
+
+  # Start server without agent.
+  docker run -d --name ssl-secrets-server --network ssl-secrets \
+    -v $ROOT:/project \
+    -v $SECRETS_VOLUME:/secrets \
+    ssl-secrets-server java -cp "$cp" \
+    -Dprovider=$provider \
+    -Dkeystore.file=/secrets/keystore \
+    name.neykov.secrets.TestServer
+  wait_for_log ssl-secrets-server "server ready"
+
+  # ── Attach ───────────────────────────────────────────────────────────────
+  rm -f $SECRETS_VOLUME/server.keys
+  docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 /secrets/server.keys
+  check_provider_logs "$provider" "attach"
+
+  # ── 1. Secrets captured after attach ─────────────────────────────────────
+  run_client "$proto" "$cp" "$provider"
+  assert_has_keys $SECRETS_VOLUME/server.keys
+
+  # ── 2. Double-attach guard: second attach logs "Already attached" ─────────
+  docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 /secrets/server.keys
+  wait_for_log ssl-secrets-server "Already attached"
+
+  # ── 3. Detach: secrets NOT captured for subsequent connections ────────────
+  docker exec ssl-secrets-server java -jar /project/$JAR_PATH detach 1
+  wait_for_log ssl-secrets-server "Successfully detached agent"
+
+  rm -f $SECRETS_VOLUME/server.keys
+  run_client "$proto" "$cp" "$provider"
+  assert_no_keys $SECRETS_VOLUME/server.keys
+
+  # ── 4. Detach-without-attach guard: second detach logs "Not attached" ─────
+  docker exec ssl-secrets-server java -jar /project/$JAR_PATH detach 1
+  wait_for_log ssl-secrets-server "Not attached"
+
+  # ── 5. Re-attach: secrets captured again ─────────────────────────────────
+  docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 /secrets/server.keys
+  rm -f $SECRETS_VOLUME/server.keys
+  run_client "$proto" "$cp" "$provider"
+  assert_has_keys $SECRETS_VOLUME/server.keys
+}
+
+run_detach_test 21
+
+docker rm -f ssl-secrets-server
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Premain-detach test: -javaagent load → runtime detach lifecycle
+#  Verifies that an agent loaded via -javaagent: can be detached at runtime.
+#  The Instrumentation object passed to premain is different from the one
+#  passed to agentmain; this exercises the cross-instance removeTransformer
+#  + retransformClasses path.
+# ══════════════════════════════════════════════════════════════════════════════
+
+run_premain_detach_test() {
+  local java_version="$1"
+
+  echo -e "\n" \
+    "=============================================\n" \
+    "   Premain detach - Java $java_version \n" \
+    "=============================================\n\n"
+
+  docker rm -f $(docker ps -qa) 2>/dev/null || true
+  docker build -f $CWD/Dockerfile.server $CWD -t ssl-secrets-server \
+    --build-arg JAVA_IMAGE_TAG=$java_version
+
+  local cp="$DEFAULT_CP"
+  local provider="JSSE"
+  local proto="TLSv1.2"
+
+  # Start server with -javaagent (premain path).
+  rm -f $SECRETS_VOLUME/server.keys
+  docker run -d --name ssl-secrets-server --network ssl-secrets \
+    -v $ROOT:/project \
+    -v $SECRETS_VOLUME:/secrets \
+    ssl-secrets-server java -cp "$cp" \
+    -Dprovider=$provider \
+    -Dkeystore.file=/secrets/keystore \
+    -javaagent:/project/$JAR_PATH=/secrets/server.keys \
+    name.neykov.secrets.TestServer
+  wait_for_log ssl-secrets-server "server ready"
+  check_provider_logs "$provider" "agent"
+
+  # ── 1. Secrets captured with premain agent ────────────────────────────────
+  run_client "$proto" "$cp" "$provider"
+  assert_has_keys $SECRETS_VOLUME/server.keys
+
+  # ── 2. Runtime detach stops capture ──────────────────────────────────────
+  docker exec ssl-secrets-server java -jar /project/$JAR_PATH detach 1
+  wait_for_log ssl-secrets-server "Successfully detached agent"
+
+  rm -f $SECRETS_VOLUME/server.keys
+  run_client "$proto" "$cp" "$provider"
+  assert_no_keys $SECRETS_VOLUME/server.keys
+
+  # ── 3. Re-attach resumes capture ─────────────────────────────────────────
+  docker exec ssl-secrets-server java -jar /project/$JAR_PATH 1 /secrets/server.keys
+  rm -f $SECRETS_VOLUME/server.keys
+  run_client "$proto" "$cp" "$provider"
+  assert_has_keys $SECRETS_VOLUME/server.keys
+}
+
+run_premain_detach_test 21
 
 docker rm -f ssl-secrets-server
