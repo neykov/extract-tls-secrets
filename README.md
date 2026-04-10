@@ -39,14 +39,29 @@ java -jar ~/Downloads/extract-tls-secrets-4.0.0.jar list
 Next attach to the process by executing:
 
 ```
-java -jar ~/Downloads/extract-tls-secrets-4.0.0.jar <pid> /tmp/secrets.log
+java -jar ~/Downloads/extract-tls-secrets-4.0.0.jar attach <pid> /tmp/secrets.log
 ```
+
+If no secrets file path is given, secrets are written to `tls-master-secrets.txt` in the current
+working directory. Relative paths are resolved against the directory where the command is run,
+not the target process's working directory.
+
+### Detach from a running process
+
+To stop secrets logging without restarting the target process:
+
+```
+java -jar ~/Downloads/extract-tls-secrets-4.0.0.jar detach <pid>
+```
+
+Detaching is safe: the target process continues running normally and the agent can be re-attached
+later to resume logging.
 
 ### Decrypt the capture in Wireshark
 
 To decrypt the capture you need to let Wireshark know where the secrets file is. 
 Configure the path in
-`Preferences > Protocols > TLS (SSL for older versions) > (Pre)-Master-Secret log filename`.
+`Preferences > Protocols > TLS > (Pre)-Master-Secret log filename`.
 
 Alternatively start Wireshark with:
 
@@ -62,8 +77,13 @@ presentation. Even more information can be found at the [Wireshark TLS](https://
 
 ## Requirements
 
-Requires at least Oracle/OpenJDK Java 6. Does not support IBM Java and custom 
-security providers like Bouncy Castle, Conscrypt.
+Requires at least Oracle/OpenJDK Java 6. Supports the following TLS providers:
+
+- Oracle/OpenJDK built-in JSSE (all supported Java versions)
+- IBM JSSE2 (`ibmjava:8`)
+- Bouncy Castle JSSE (`bcjsse` 1.57+)
+
+Conscrypt is not supported.
 
 ## Building
 
