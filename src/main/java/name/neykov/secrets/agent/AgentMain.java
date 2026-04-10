@@ -29,7 +29,7 @@ public class AgentMain {
     private static volatile Instrumentation attachInstr = null;
 
     // Created in process working directory
-    public static final String DEFAULT_SECRETS_FILE = "ssl-master-secrets.txt";
+    public static final String DEFAULT_SECRETS_FILE = "tls-master-secrets.txt";
 
     // Called from inside the target process when using "-javaagent:" option.
     public static void premain(String agentArgs, Instrumentation inst) {

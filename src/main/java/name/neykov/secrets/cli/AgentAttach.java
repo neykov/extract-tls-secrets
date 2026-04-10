@@ -6,10 +6,12 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
-import name.neykov.secrets.agent.AgentMain;
 
 /** Client application that will load the agent in the target process at runtime. */
 public class AgentAttach {
+    // Keep in sync with AgentMain.DEFAULT_SECRETS_FILE
+    static final String DEFAULT_SECRETS_FILE = "tls-master-secrets.txt";
+
     public static void main(String[] args) throws Exception {
         URL jarUrl = AgentAttach.class.getProtectionDomain().getCodeSource().getLocation();
         File jarFile = new File(jarUrl.toURI());
@@ -21,8 +23,22 @@ public class AgentAttach {
         try {
             CliArguments cliArguments = CliArguments.parse(args);
             String listOrPid = "list".equals(cliArguments.action) ? "list" : cliArguments.pid;
-            String attachOptions =
-                    "detach".equals(cliArguments.action) ? "detach" : cliArguments.secretsPath;
+            String attachOptions;
+            if ("detach".equals(cliArguments.action)) {
+                attachOptions = "detach";
+            } else if ("list".equals(cliArguments.action)) {
+                attachOptions = "";
+            } else {
+                String rawPath =
+                        cliArguments.secretsPath.isEmpty()
+                                ? DEFAULT_SECRETS_FILE
+                                : cliArguments.secretsPath;
+                File secretsFile = new File(rawPath);
+                if (!secretsFile.isAbsolute()) {
+                    secretsFile = new File(System.getProperty("user.dir"), rawPath);
+                }
+                attachOptions = secretsFile.getAbsolutePath();
+            }
             handle(jarUrl, jarFile, listOrPid, attachOptions);
         } catch (IllegalArgumentException e) {
             help(jarFile, e.getMessage());
@@ -51,13 +67,8 @@ public class AgentAttach {
         System.out.println("  * secrets_file - file path to log the shared secrets to (optional);");
         System.out.println(
                 "                   if a relative path is used it's resolved against"
-                        + " the target process working folder;");
-        System.out.println(
-                "                   default value is '" + AgentMain.DEFAULT_SECRETS_FILE + "'");
-        System.out.println();
-        System.out.println(
-                "Note: The absolute path to the secrets file will be logged at INFO level"
-                        + " in the target process.");
+                        + " the current working folder;");
+        System.out.println("                   default value is '" + DEFAULT_SECRETS_FILE + "'");
     }
 
     private static void handle(URL jarUrl, File jarFile, String listOrPid, String secretsPath)

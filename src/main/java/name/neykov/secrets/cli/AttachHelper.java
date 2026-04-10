@@ -34,7 +34,12 @@ public class AttachHelper {
                 if ("detach".equals(attachOptions)) {
                     System.out.println("Successfully detached from process ID " + pid + ".");
                 } else {
-                    System.out.println("Successfully attached to process ID " + pid + ".");
+                    System.out.println(
+                            "Successfully attached to process ID "
+                                    + pid
+                                    + ". Logging to "
+                                    + attachOptions
+                                    + ".");
                 }
             } catch (IllegalStateException e) {
                 String msg =
